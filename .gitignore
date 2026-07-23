@@ -1,3 +1,7 @@
-*.db
-claude_desktop_config.json
-whatsapp.log
+whatsapp-bridge/whatsapp-bridge
+whatsapp-mcp-server/whatsapp-bridge
+__pycache__/
+*.pyc
+.venv/
+data/
+store/
