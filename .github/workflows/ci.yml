@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Build Go bridge
+        run: cd whatsapp-bridge && go build -o whatsapp-bridge .
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python deps
+        run: |
+          cd whatsapp-mcp-server
+          pip install -e .
+
+      - name: Lint Python
+        run: |
+          pip install pyflakes
+          pyflakes whatsapp-mcp-server/*.py

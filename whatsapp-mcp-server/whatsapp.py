@@ -1,5 +1,18 @@
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import platform
+import time
+
+# Detect local timezone offset for display
+_local_tz = timezone(timedelta(seconds=-time.timezone if time.timezone < 0 else -time.timezone)) if hasattr(time, 'timezone') else timezone.utc
+_tz_name = time.tzname[0] if hasattr(time, 'tzname') and time.tzname else 'UTC'
+
+def _localize_dt(dt):
+    if dt is None: return dt
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).astimezone(_local_tz)
+    return dt.astimezone(_local_tz)
+
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 import os.path
@@ -94,11 +107,13 @@ def get_sender_name(sender_jid: str) -> str:
 def format_message(message: Message, show_chat_info: bool = True) -> None:
     """Print a single message with consistent formatting."""
     output = ""
+    ts = _localize_dt(message.timestamp)
+    ts_str = ts.strftime("%Y-%m-%d %H:%M:%S") + " " + _tz_name
     
     if show_chat_info and message.chat_name:
-        output += f"[{message.timestamp:%Y-%m-%d %H:%M:%S}] Chat: {message.chat_name} "
+        output += f"[{ts_str}] Chat: {message.chat_name} "
     else:
-        output += f"[{message.timestamp:%Y-%m-%d %H:%M:%S}] "
+        output += f"[{ts_str}] "
         
     content_prefix = ""
     if hasattr(message, 'media_type') and message.media_type:
