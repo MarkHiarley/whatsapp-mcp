@@ -1,104 +1,121 @@
 # WhatsApp MCP Server
 
 Conecte seu WhatsApp a agentes de IA via **Model Context Protocol (MCP)**.
-Fork com correções e melhorias do [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp).
+Fork com Whatsmeow atualizado, correções de compatibilidade, timezone local, Docker e API REST autenticada.
 
-## ✨ Melhorias deste fork
+## Docker (recomendado)
 
-- ✅ **Whatsmeow atualizado** (sem erro 405 "Client outdated")
-- ✅ **Breaking fixes**: `context.Context` adicionado em 5 funções
-- ✅ **Timezone**: mensagens exibem fuso horário local (ex: `2026-07-23 04:05:36 BRT`)
-- ✅ **Docker**: roda sem instalar Go ou Python
-- ✅ **CI**: GitHub Actions (build + lint)
-- ✅ **API REST** na porta 8080 (`POST /api/send`)
-
-## 🚀 Como usar
-
-### Opção 1: Docker (recomendado)
+Pré-requisito: Docker com Compose.
 
 ```bash
-docker compose up
+printf 'WHATSAPP_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
+docker compose up --build
 ```
 
-Escaneie o QR Code que aparece no terminal com seu WhatsApp
-(Configurações > Dispositivos conectados > Conectar um dispositivo).
+No primeiro uso, escaneie o QR Code exibido no terminal em **WhatsApp → Dispositivos conectados → Conectar dispositivo**. A sessão fica persistida em `./data`; os próximos inícios reconectam automaticamente.
 
-### Opção 2: Manual
+A API fica disponível apenas na máquina local em `http://127.0.0.1:8080`.
 
-Pré-requisitos: Go 1.24+, Python 3.11+, UV
+### Usar uma sessão manual existente
+
+Com o bridge parado:
 
 ```bash
-# Build bridge Go
-cd whatsapp-bridge && go build -o whatsapp-bridge .
-
-# Instalar server Python
-cd ../whatsapp-mcp-server && uv sync
-
-# Rodar
-uv run python main.py --bridge-path ../whatsapp-bridge/whatsapp-bridge --store-dir ./data
+mkdir -p data
+cp whatsapp-bridge/store/{whatsapp,messages}.db data/
+docker compose up --build
 ```
 
-### Opção 3: API REST direta
+## Configuração MCP
 
-O bridge também expõe uma API HTTP na porta 8080:
-
-```bash
-# Enviar mensagem
-curl -X POST http://localhost:8080/api/send \
-  -H "Content-Type: application/json" \
-  -d '{"recipient":"5511999999999","message":"Olá!"}'
-
-# Baixar mídia
-curl -X POST http://localhost:8080/api/download \
-  -H "Content-Type: application/json" \
-  -d '{"messageId":"...","chatJid":"...@s.whatsapp.net"}'
-```
-
-## 🔧 Configuração no Pi / Claude Desktop
-
-Adicione no `mcp.json`:
+O MCP usa `stdio` e é iniciado pelo cliente dentro do container já conectado:
 
 ```json
 {
   "mcpServers": {
     "whatsapp": {
-      "command": "uv",
+      "command": "docker",
       "args": [
-        "--directory",
-        "/caminho/whatsapp-mcp/whatsapp-mcp-server",
-        "run",
-        "main.py",
-        "--bridge-path",
-        "/caminho/whatsapp-mcp/whatsapp-bridge/whatsapp-bridge",
-        "--store-dir",
-        "/caminho/whatsapp-mcp/data"
+        "exec", "-i",
+        "-w", "/app/whatsapp-mcp-server",
+        "whatsapp-mcp",
+        "python", "main.py"
       ]
     }
   }
 }
 ```
 
-## 🧪 Testes
+O container deve estar ativo com `docker compose up -d` antes do cliente MCP iniciar.
+
+## API REST
+
+Carregue o token sem imprimi-lo:
 
 ```bash
-cd whatsapp-mcp-server && uv run python test_main.py
+set -a; . ./.env; set +a
 ```
 
-## 📦 Estrutura
+Enviar mensagem:
 
+```bash
+curl -X POST http://127.0.0.1:8080/api/send \
+  -H "Authorization: Bearer $WHATSAPP_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"recipient":"5511999999999","message":"Olá!"}'
 ```
+
+Baixar mídia:
+
+```bash
+curl -X POST http://127.0.0.1:8080/api/download \
+  -H "Authorization: Bearer $WHATSAPP_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message_id":"...","chat_jid":"...@s.whatsapp.net"}'
+```
+
+O token é obrigatório, não possui valor padrão e deve permanecer somente no `.env` local.
+
+## Execução manual
+
+Pré-requisitos: Go 1.25+, Python 3.11+ e UV.
+
+```bash
+export WHATSAPP_API_TOKEN="$(openssl rand -hex 32)"
+(cd whatsapp-bridge && go run .)
+```
+
+Em outro terminal:
+
+```bash
+cd whatsapp-mcp-server
+uv sync
+uv run python main.py
+```
+
+## Testes
+
+```bash
+cd whatsapp-bridge && go test ./...
+cd ../whatsapp-mcp-server && uv run python test_main.py
+```
+
+## Estrutura
+
+```text
 whatsapp-mcp/
-├── whatsapp-bridge/        # Bridge Go (conexão WhatsApp)
-│   └── main.go
-├── whatsapp-mcp-server/    # Servidor Python MCP
-│   ├── main.py
-│   ├── whatsapp.py
-│   └── test_main.py
-├── Dockerfile
+├── whatsapp-bridge/        # Bridge Go, REST e conexão WhatsApp
+├── whatsapp-mcp-server/    # Servidor MCP Python
+├── docker-entrypoint.sh    # Inicialização do bridge
+├── Dockerfile              # Build multi-stage
 ├── docker-compose.yml
-└── .github/workflows/ci.yml
+└── data/                   # Sessão persistente, ignorada pelo Git
 ```
 
-## 📄 Licença
+## Créditos
 
-MIT
+Projeto original criado por [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). Este fork mantém os créditos e a licença MIT do projeto original.
+
+## Licença
+
+[MIT](LICENSE)

@@ -1,0 +1,10 @@
+.git
+.env
+data
+store
+**/.venv
+**/__pycache__
+**/*.pyc
+whatsapp-bridge/store
+whatsapp-bridge/whatsapp-bridge
+whatsapp-mcp-server/whatsapp-bridge
