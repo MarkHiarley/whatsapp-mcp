@@ -107,7 +107,12 @@ cd ../whatsapp-mcp-server && uv run python test_main.py
 ```text
 whatsapp-mcp/
 ├── contracts/              # Contrato OpenAPI da API v1
-├── whatsapp-bridge/        # Bridge Go, REST e conexão WhatsApp
+├── whatsapp-bridge/
+│   ├── main.go             # Inicialização e ciclo de vida
+│   ├── api.go              # API REST, contratos e autenticação
+│   ├── handlers.go         # Eventos e sincronização de mensagens
+│   ├── media.go            # Envio, download e áudio
+│   └── store.go            # SQLite, contatos, chats e mensagens
 ├── whatsapp-mcp-server/    # Servidor MCP Python
 ├── docker-entrypoint.sh    # Inicialização do bridge
 ├── Dockerfile              # Build multi-stage
