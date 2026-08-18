@@ -1,24 +1,24 @@
 # WhatsApp MCP Server
 
-Conecte seu WhatsApp a agentes de IA via **Model Context Protocol (MCP)**.
-Fork com Whatsmeow atualizado, correções de compatibilidade, timezone local, Docker e API REST autenticada.
+Connect WhatsApp to AI agents through the **Model Context Protocol (MCP)**.
+This fork includes an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, and an authenticated REST API.
 
-## Docker (recomendado)
+## Docker (recommended)
 
-Pré-requisito: Docker com Compose.
+Requirement: Docker with Compose.
 
 ```bash
 printf 'WHATSAPP_API_TOKEN=%s\n' "$(openssl rand -hex 32)" > .env
 docker compose up --build
 ```
 
-No primeiro uso, escaneie o QR Code exibido no terminal em **WhatsApp → Dispositivos conectados → Conectar dispositivo**. A sessão fica persistida em `./data`; os próximos inícios reconectam automaticamente.
+On first use, scan the QR code shown in the terminal under **WhatsApp → Linked devices → Link a device**. The session is persisted in `./data`, so subsequent starts reconnect automatically.
 
-A API fica disponível apenas na máquina local em `http://127.0.0.1:8080`.
+The API is available only on the local machine at `http://127.0.0.1:8080`.
 
-### Usar uma sessão manual existente
+### Use an existing manual session
 
-Com o bridge parado:
+Stop the bridge first, then run:
 
 ```bash
 mkdir -p data
@@ -26,9 +26,9 @@ cp whatsapp-bridge/store/{whatsapp,messages}.db data/
 docker compose up --build
 ```
 
-## Configuração MCP
+## MCP configuration
 
-O MCP usa `stdio` e é iniciado pelo cliente dentro do container já conectado:
+The MCP server uses `stdio` and is started by the client inside the connected container:
 
 ```json
 {
@@ -46,26 +46,26 @@ O MCP usa `stdio` e é iniciado pelo cliente dentro do container já conectado:
 }
 ```
 
-O container deve estar ativo com `docker compose up -d` antes do cliente MCP iniciar.
+The container must be running with `docker compose up -d` before the MCP client starts.
 
-## API REST
+## REST API
 
-Carregue o token sem imprimi-lo:
+Load the token without printing it:
 
 ```bash
 set -a; . ./.env; set +a
 ```
 
-Enviar mensagem:
+Send a message:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/send \
   -H "Authorization: Bearer $WHATSAPP_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"recipient":"5511999999999","message":"Olá!"}'
+  -d '{"recipient":"5511999999999","message":"Hello!"}'
 ```
 
-Baixar mídia:
+Download media:
 
 ```bash
 curl -X POST http://127.0.0.1:8080/api/v1/download \
@@ -74,20 +74,20 @@ curl -X POST http://127.0.0.1:8080/api/v1/download \
   -d '{"message_id":"...","chat_jid":"...@s.whatsapp.net"}'
 ```
 
-O token é obrigatório, não possui valor padrão e deve permanecer somente no `.env` local. As respostas da API v1 usam o envelope `{success, data, error}` documentado em [`contracts/openapi.yaml`](contracts/openapi.yaml). As rotas antigas `/api/send` e `/api/download` permanecem temporariamente disponíveis para compatibilidade.
+The token is required, has no default value, and must remain only in the local `.env` file. API v1 responses use the `{success, data, error}` envelope documented in [`contracts/openapi.yaml`](contracts/openapi.yaml). The legacy `/api/send` and `/api/download` routes remain temporarily available for compatibility.
 
-As ferramentas MCP retornam mensagens, chats e contatos como objetos JSON estruturados, não como texto pré-formatado.
+MCP tools return messages, chats, and contacts as structured JSON objects rather than preformatted text.
 
-## Execução manual
+## Manual setup
 
-Pré-requisitos: Go 1.25+, Python 3.11+ e UV.
+Requirements: Go 1.25+, Python 3.11+, and UV.
 
 ```bash
 export WHATSAPP_API_TOKEN="$(openssl rand -hex 32)"
 (cd whatsapp-bridge && go run .)
 ```
 
-Em outro terminal:
+In another terminal:
 
 ```bash
 cd whatsapp-mcp-server
@@ -95,35 +95,35 @@ uv sync
 uv run python main.py
 ```
 
-## Testes
+## Tests
 
 ```bash
 cd whatsapp-bridge && go test ./...
 cd ../whatsapp-mcp-server && uv run python test_main.py
 ```
 
-## Estrutura
+## Project structure
 
 ```text
 whatsapp-mcp/
-├── contracts/              # Contrato OpenAPI da API v1
+├── contracts/              # API v1 OpenAPI contract
 ├── whatsapp-bridge/
-│   ├── main.go             # Inicialização e ciclo de vida
-│   ├── api.go              # API REST, contratos e autenticação
-│   ├── handlers.go         # Eventos e sincronização de mensagens
-│   ├── media.go            # Envio, download e áudio
-│   └── store.go            # SQLite, contatos, chats e mensagens
-├── whatsapp-mcp-server/    # Servidor MCP Python
-├── docker-entrypoint.sh    # Inicialização do bridge
-├── Dockerfile              # Build multi-stage
+│   ├── main.go             # Initialization and lifecycle
+│   ├── api.go              # REST API, contracts, and authentication
+│   ├── handlers.go         # Events and message synchronization
+│   ├── media.go            # Sending, downloading, and audio
+│   └── store.go            # SQLite, contacts, chats, and messages
+├── whatsapp-mcp-server/    # Python MCP server
+├── docker-entrypoint.sh    # Bridge startup
+├── Dockerfile              # Multi-stage build
 ├── docker-compose.yml
-└── data/                   # Sessão persistente, ignorada pelo Git
+└── data/                   # Persistent session, ignored by Git
 ```
 
-## Créditos
+## Credits
 
-Projeto original criado por [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). Este fork mantém os créditos e a licença MIT do projeto original.
+Original project created by [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). This fork preserves the original project credits and MIT license.
 
-## Licença
+## License
 
 [MIT](LICENSE)
