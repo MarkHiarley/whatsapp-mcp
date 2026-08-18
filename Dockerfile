@@ -3,7 +3,7 @@ FROM golang:1.25 AS go-builder
 WORKDIR /src
 COPY whatsapp-bridge/go.mod whatsapp-bridge/go.sum ./
 RUN go mod download
-COPY whatsapp-bridge/main.go ./
+COPY whatsapp-bridge/*.go ./
 RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/whatsapp-bridge .
 
 # Python dependencies
