@@ -12,24 +12,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 from datetime import datetime, timezone, timedelta
 import whatsapp
 from main import _contract
-from whatsapp import Message as ContractMessage
+from whatsapp import Message
 from whatsapp import _bridge_response, _identity_aliases, _localize_dt, _tz_name, format_message
-from dataclasses import dataclass
-from typing import Optional
-
-
-# ─── Mock das classes do whatsapp.py ─────────────────────────
-@dataclass
-class Message:
-    id: str = ""
-    timestamp: datetime = datetime.now()
-    sender: str = ""
-    content: str = ""
-    is_from_me: bool = False
-    chat_jid: str = ""
-    chat_name: str = ""
-    media_type: Optional[str] = None
-    filename: Optional[str] = None
 
 
 # ─── Testes ──────────────────────────────────────────────────
@@ -74,6 +58,7 @@ def test_format_message_tz():
         sender="5511999999999@s.whatsapp.net",
         content="Mensagem de teste",
         is_from_me=True,
+        chat_jid="",
         chat_name="Teste",
     )
     output = format_message(msg, show_chat_info=True)
@@ -90,6 +75,8 @@ def test_format_message_no_chat():
         sender="5511999999999@s.whatsapp.net",
         content="Teste",
         is_from_me=True,
+        chat_jid="",
+        id="",
     )
     output = format_message(msg, show_chat_info=False)
     assert _tz_name in output
@@ -115,7 +102,7 @@ def test_format_message_media():
 
 def test_mcp_message_contract():
     """Mensagem MCP deve ser JSON estruturado com timestamp ISO-8601."""
-    payload = _contract(ContractMessage(
+    payload = _contract(Message(
         id="contract-1",
         timestamp=datetime(2026, 8, 18, 20, 0, 0),
         sender="5511999999999",

@@ -13,7 +13,7 @@ def _localize_dt(dt):
     return dt.astimezone(_local_tz)
 
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Any, Optional, List, Tuple
 import os.path
 import requests
 import json
@@ -200,26 +200,26 @@ def list_messages(
         query_parts = ["SELECT messages.timestamp, messages.sender, chats.name, messages.content, messages.is_from_me, chats.jid, messages.id, messages.media_type FROM messages"]
         query_parts.append("JOIN chats ON messages.chat_jid = chats.jid")
         where_clauses = []
-        params = []
+        params: List[Any] = []
         
         # Add filters
         if after:
             try:
-                after = datetime.fromisoformat(after)
+                parsed_after = datetime.fromisoformat(after)
             except ValueError:
                 raise ValueError(f"Invalid date format for 'after': {after}. Please use ISO-8601 format.")
-            
+
             where_clauses.append("messages.timestamp > ?")
-            params.append(after)
+            params.append(parsed_after)
 
         if before:
             try:
-                before = datetime.fromisoformat(before)
+                parsed_before = datetime.fromisoformat(before)
             except ValueError:
                 raise ValueError(f"Invalid date format for 'before': {before}. Please use ISO-8601 format.")
-            
+
             where_clauses.append("messages.timestamp < ?")
-            params.append(before)
+            params.append(parsed_before)
 
         if sender_phone_number:
             aliases = _identity_aliases(conn, sender_phone_number)
@@ -406,7 +406,7 @@ def list_chats(
             FROM chats {join}
         """).fetchall()
 
-        deduplicated = {}
+        deduplicated: dict[str, Chat] = {}
         for row in rows:
             jid, name = row[0], row[1]
             identity = None if jid.endswith(('@g.us', '@broadcast', '@newsletter')) else _contact_identity(conn, jid)
