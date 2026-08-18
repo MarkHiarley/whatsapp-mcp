@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
@@ -84,6 +85,14 @@ func NewMessageStore() (*MessageStore, error) {
 			PRIMARY KEY (id, chat_jid),
 			FOREIGN KEY (chat_jid) REFERENCES chats(jid)
 		);
+
+		CREATE TABLE IF NOT EXISTS contacts (
+			phone TEXT PRIMARY KEY,
+			lid TEXT,
+			display_name TEXT,
+			push_name TEXT
+		);
+		CREATE INDEX IF NOT EXISTS contacts_lid_idx ON contacts(lid);
 	`)
 	if err != nil {
 		db.Close()
@@ -96,6 +105,84 @@ func NewMessageStore() (*MessageStore, error) {
 // Close the database connection
 func (store *MessageStore) Close() error {
 	return store.db.Close()
+}
+
+// SyncContacts copies WhatsApp's contact names and LID mappings into messages.db.
+func (store *MessageStore) SyncContacts(client *whatsmeow.Client) error {
+	contacts, err := client.Store.Contacts.GetAllContacts(context.Background())
+	if err != nil {
+		return err
+	}
+
+	tx, err := store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	for jid, contact := range contacts {
+		var phone, lid string
+		switch jid.Server {
+		case types.DefaultUserServer:
+			phone = jid.User
+			if mapped, mapErr := client.Store.LIDs.GetLIDForPN(context.Background(), jid.ToNonAD()); mapErr == nil {
+				lid = mapped.User
+			}
+		case types.HiddenUserServer:
+			lid = jid.User
+			if mapped, mapErr := client.Store.LIDs.GetPNForLID(context.Background(), jid.ToNonAD()); mapErr == nil {
+				phone = mapped.User
+			}
+		}
+		if phone == "" {
+			continue
+		}
+
+		displayName := contact.FullName
+		if displayName == "" {
+			displayName = contact.BusinessName
+		}
+		if displayName == "" {
+			displayName = contact.FirstName
+		}
+		_, err = tx.Exec(`
+			INSERT INTO contacts (phone, lid, display_name, push_name) VALUES (?, ?, ?, ?)
+			ON CONFLICT(phone) DO UPDATE SET
+				lid = COALESCE(NULLIF(excluded.lid, ''), contacts.lid),
+				display_name = COALESCE(NULLIF(excluded.display_name, ''), contacts.display_name),
+				push_name = COALESCE(NULLIF(excluded.push_name, ''), contacts.push_name)
+		`, phone, lid, displayName, contact.PushName)
+		if err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// CanonicalJID converts a privacy LID into its phone-number JID when known.
+func (store *MessageStore) CanonicalJID(client *whatsmeow.Client, jid types.JID) types.JID {
+	jid = jid.ToNonAD()
+	if jid.Server != types.HiddenUserServer {
+		return jid
+	}
+	phoneJID, err := client.Store.LIDs.GetPNForLID(context.Background(), jid)
+	if err != nil || phoneJID.IsEmpty() {
+		return jid
+	}
+	_, _ = store.db.Exec(`
+		INSERT INTO contacts (phone, lid) VALUES (?, ?)
+		ON CONFLICT(phone) DO UPDATE SET lid = excluded.lid
+	`, phoneJID.User, jid.User)
+	return phoneJID.ToNonAD()
+}
+
+func (store *MessageStore) ContactName(jid types.JID) string {
+	var name string
+	_ = store.db.QueryRow(`
+		SELECT COALESCE(NULLIF(display_name, ''), NULLIF(push_name, ''), phone)
+		FROM contacts WHERE phone = ? OR lid = ? LIMIT 1
+	`, jid.User, jid.User).Scan(&name)
+	return name
 }
 
 // Store a chat in the database
@@ -410,12 +497,14 @@ func extractMediaInfo(msg *waProto.Message) (mediaType string, filename string, 
 
 // Handle regular incoming messages with media support
 func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
-	// Save message to database
-	chatJID := msg.Info.Chat.String()
-	sender := msg.Info.Sender.User
+	// Store direct chats and senders under their canonical phone identity.
+	chat := messageStore.CanonicalJID(client, msg.Info.Chat)
+	senderJID := messageStore.CanonicalJID(client, msg.Info.Sender)
+	chatJID := chat.String()
+	sender := senderJID.User
 
 	// Get appropriate chat name (pass nil for conversation since we don't have one for regular messages)
-	name := GetChatName(client, messageStore, msg.Info.Chat, chatJID, nil, sender, logger)
+	name := GetChatName(client, messageStore, chat, chatJID, nil, sender, logger)
 
 	// Update chat in database with the message timestamp (keeps last message time updated)
 	err := messageStore.StoreChat(chatJID, name, msg.Info.Timestamp)
@@ -675,10 +764,23 @@ func extractDirectPathFromURL(url string) string {
 	return "/" + pathPart
 }
 
+func requireBearerToken(token string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		expected := "Bearer " + token
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Start a REST API server to expose the WhatsApp client functionality
-func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
+func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int, token string) {
+	mux := http.NewServeMux()
+
 	// Handler for sending messages
-	http.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/send", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -724,7 +826,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 	})
 
 	// Handler for downloading media
-	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -780,7 +882,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 	// Run server in a goroutine so it doesn't block
 	go func() {
-		if err := http.ListenAndServe(serverAddr, nil); err != nil {
+		if err := http.ListenAndServe(serverAddr, requireBearerToken(token, mux)); err != nil {
 			fmt.Printf("REST API server error: %v\n", err)
 		}
 	}()
@@ -790,6 +892,12 @@ func main() {
 	// Set up logger
 	logger := waLog.Stdout("Client", "INFO", true)
 	logger.Infof("Starting WhatsApp client...")
+
+	apiToken := os.Getenv("WHATSAPP_API_TOKEN")
+	if apiToken == "" {
+		logger.Errorf("WHATSAPP_API_TOKEN is required")
+		return
+	}
 
 	// Create database connection for storing session data
 	dbLog := waLog.Stdout("Database", "INFO", true)
@@ -903,10 +1011,14 @@ func main() {
 		return
 	}
 
+	if err := messageStore.SyncContacts(client); err != nil {
+		logger.Warnf("Failed to sync contacts: %v", err)
+	}
+
 	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
 
 	// Start REST API server
-	startRESTServer(client, messageStore, 8080)
+	startRESTServer(client, messageStore, 8080, apiToken)
 
 	// Create a channel to keep the main goroutine alive
 	exitChan := make(chan os.Signal, 1)
@@ -987,15 +1099,15 @@ func GetChatName(client *whatsmeow.Client, messageStore *MessageStore, jid types
 		// This is an individual contact
 		logger.Infof("Getting name for contact: %s", chatJID)
 
-		// Just use contact info (full name)
+		name = messageStore.ContactName(jid)
 		contact, err := client.Store.Contacts.GetContact(context.Background(), jid)
-		if err == nil && contact.FullName != "" {
+		if name == "" && err == nil && contact.FullName != "" {
 			name = contact.FullName
-		} else if sender != "" {
-			// Fallback to sender
+		}
+		if name == "" && sender != "" {
 			name = sender
-		} else {
-			// Last fallback to JID
+		}
+		if name == "" {
 			name = jid.User
 		}
 
@@ -1016,14 +1128,16 @@ func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, his
 			continue
 		}
 
-		chatJID := *conversation.ID
+		originalChatJID := *conversation.ID
 
-		// Try to parse the JID
-		jid, err := types.ParseJID(chatJID)
+		// Try to parse and canonicalize the JID
+		jid, err := types.ParseJID(originalChatJID)
 		if err != nil {
-			logger.Warnf("Failed to parse JID %s: %v", chatJID, err)
+			logger.Warnf("Failed to parse JID %s: %v", originalChatJID, err)
 			continue
 		}
+		jid = messageStore.CanonicalJID(client, jid)
+		chatJID := jid.String()
 
 		// Get appropriate chat name by passing the history sync conversation directly
 		name := GetChatName(client, messageStore, jid, chatJID, conversation, "", logger)
@@ -1096,6 +1210,10 @@ func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, his
 					}
 				} else {
 					sender = jid.User
+				}
+
+				if senderJID, parseErr := types.ParseJID(sender); parseErr == nil {
+					sender = messageStore.CanonicalJID(client, senderJID).User
 				}
 
 				// Store message

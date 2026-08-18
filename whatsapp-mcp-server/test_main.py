@@ -5,12 +5,15 @@ Uso: uv run python test_main.py
 
 import sys
 import os
+import sqlite3
+import tempfile
 sys.path.insert(0, os.path.dirname(__file__))
 
 from datetime import datetime, timezone, timedelta
-from whatsapp import _localize_dt, _tz_name, format_message
+import whatsapp
+from whatsapp import _identity_aliases, _localize_dt, _tz_name, format_message
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional
 
 
 # ─── Mock das classes do whatsapp.py ─────────────────────────
@@ -108,6 +111,49 @@ def test_format_message_media():
     print(f"  ✅ {output.strip()}")
 
 
+def test_api_token_header():
+    """Chamadas REST devem enviar o token configurado."""
+    original_token = whatsapp.WHATSAPP_API_TOKEN
+    whatsapp.WHATSAPP_API_TOKEN = "secret"
+    try:
+        assert whatsapp._api_headers() == {"Authorization": "Bearer secret"}
+    finally:
+        whatsapp.WHATSAPP_API_TOKEN = original_token
+    print("  ✅ token REST enviado como Bearer")
+
+
+def test_lid_identity_aliases():
+    """Telefone e LID devem resolver para a mesma identidade e chat."""
+    with tempfile.NamedTemporaryFile(suffix=".db") as db:
+        conn = sqlite3.connect(db.name)
+        conn.executescript("""
+            CREATE TABLE contacts (phone TEXT, lid TEXT, display_name TEXT, push_name TEXT);
+            CREATE TABLE chats (jid TEXT PRIMARY KEY, name TEXT, last_message_time TEXT);
+            CREATE TABLE messages (
+                id TEXT, chat_jid TEXT, sender TEXT, content TEXT, timestamp TEXT,
+                is_from_me BOOLEAN, media_type TEXT
+            );
+            INSERT INTO contacts VALUES ('5511999999999', '123456789', 'Contato', '');
+            INSERT INTO chats VALUES ('123456789@lid', '123456789', '2026-01-01 10:00:00');
+            INSERT INTO chats VALUES ('5511999999999@s.whatsapp.net', 'Contato', '2026-01-02 10:00:00');
+        """)
+        conn.commit()
+        expected = {'5511999999999', '123456789', '5511999999999@s.whatsapp.net', '123456789@lid'}
+        assert set(_identity_aliases(conn, '123456789@lid')) == expected
+        conn.close()
+
+        original_path = whatsapp.MESSAGES_DB_PATH
+        whatsapp.MESSAGES_DB_PATH = db.name
+        try:
+            chats = whatsapp.list_chats()
+            assert len(chats) == 1
+            assert chats[0].jid == '5511999999999@s.whatsapp.net'
+            assert chats[0].name == 'Contato'
+        finally:
+            whatsapp.MESSAGES_DB_PATH = original_path
+    print("  ✅ telefone e LID compartilham a mesma identidade e chat")
+
+
 # ─── Rodar ───────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"\n🔍 Testes do WhatsApp MCP (fuso: {_tz_name})\n")
@@ -119,6 +165,8 @@ if __name__ == "__main__":
         test_format_message_tz,
         test_format_message_no_chat,
         test_format_message_media,
+        test_api_token_header,
+        test_lid_identity_aliases,
     ]
     passed = 0
     for t in tests:
@@ -128,3 +176,5 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"  ❌ {t.__name__}: {e}")
     print(f"\n{'='*40}\nResultado: {passed}/{len(tests)} passaram\n")
+    if passed != len(tests):
+        raise SystemExit(1)
