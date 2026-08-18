@@ -1,0 +1,184 @@
+openapi: 3.1.0
+info:
+  title: WhatsApp Bridge API
+  version: 1.0.0
+  description: API interna entre o servidor MCP e o bridge WhatsApp.
+servers:
+  - url: http://127.0.0.1:8080/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /send:
+    post:
+      operationId: sendMessage
+      summary: Envia texto ou arquivo pelo WhatsApp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: Mensagem enviada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /download:
+    post:
+      operationId: downloadMedia
+      summary: Baixa a mídia de uma mensagem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadMediaRequest'
+      responses:
+        '200':
+          description: Mídia baixada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadMediaResponse'
+        '400':
+          $ref: '#/components/responses/InvalidRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    SendMessageRequest:
+      type: object
+      additionalProperties: false
+      required: [recipient]
+      anyOf:
+        - required: [message]
+        - required: [media_path]
+      properties:
+        recipient:
+          type: string
+          minLength: 1
+          examples: ['5511999999999']
+        message:
+          type: string
+          minLength: 1
+        media_path:
+          type: string
+          minLength: 1
+    DownloadMediaRequest:
+      type: object
+      additionalProperties: false
+      required: [message_id, chat_jid]
+      properties:
+        message_id:
+          type: string
+          minLength: 1
+        chat_jid:
+          type: string
+          minLength: 1
+    SendMessageData:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+    DownloadMediaData:
+      type: object
+      required: [message, filename, path]
+      properties:
+        message:
+          type: string
+        filename:
+          type: string
+        path:
+          type: string
+          description: Caminho interno do arquivo; será substituído por contrato de mídia remota.
+    APIError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - UNAUTHORIZED
+            - INVALID_REQUEST
+            - METHOD_NOT_ALLOWED
+            - SEND_FAILED
+            - DOWNLOAD_FAILED
+        message:
+          type: string
+    SendMessageResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success:
+          const: true
+        data:
+          $ref: '#/components/schemas/SendMessageData'
+        error:
+          type: 'null'
+    DownloadMediaResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success:
+          const: true
+        data:
+          $ref: '#/components/schemas/DownloadMediaData'
+        error:
+          type: 'null'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [success, data, error]
+      properties:
+        success:
+          const: false
+        data:
+          type: 'null'
+        error:
+          $ref: '#/components/schemas/APIError'
+  responses:
+    InvalidRequest:
+      description: Requisição inválida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Token ausente ou inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    MethodNotAllowed:
+      description: Método HTTP não permitido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Falha ao processar a operação
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

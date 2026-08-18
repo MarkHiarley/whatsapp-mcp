@@ -1,4 +1,7 @@
-from typing import List, Dict, Any, Optional
+from dataclasses import fields, is_dataclass
+from datetime import datetime
+from typing import List, Optional
+from typing_extensions import NotRequired, TypedDict
 from mcp.server.fastmcp import FastMCP
 from whatsapp import (
     search_contacts as whatsapp_search_contacts,
@@ -12,21 +15,77 @@ from whatsapp import (
     send_message as whatsapp_send_message,
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
-    download_media as whatsapp_download_media
+    download_media as whatsapp_download_media,
+    _localize_dt
 )
+
+
+class MessageDTO(TypedDict):
+    id: str
+    timestamp: str
+    sender: str
+    sender_name: str
+    content: str
+    is_from_me: bool
+    chat_jid: str
+    chat_name: Optional[str]
+    media_type: Optional[str]
+
+
+class ChatDTO(TypedDict):
+    jid: str
+    name: Optional[str]
+    last_message_time: Optional[str]
+    last_message: Optional[str]
+    last_sender: Optional[str]
+    last_is_from_me: Optional[bool]
+
+
+class ContactDTO(TypedDict):
+    phone_number: str
+    name: Optional[str]
+    jid: str
+
+
+class MessageContextDTO(TypedDict):
+    message: MessageDTO
+    before: List[MessageDTO]
+    after: List[MessageDTO]
+
+
+class ActionResult(TypedDict):
+    success: bool
+    message: str
+
+
+class MediaResult(ActionResult):
+    file_path: NotRequired[str]
+
+
+def _contract(value):
+    if isinstance(value, datetime):
+        return _localize_dt(value).isoformat()
+    if is_dataclass(value):
+        return {field.name: _contract(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, list):
+        return [_contract(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _contract(item) for key, item in value.items()}
+    return value
+
 
 # Initialize FastMCP server
 mcp = FastMCP("whatsapp")
 
 @mcp.tool()
-def search_contacts(query: str) -> List[Dict[str, Any]]:
+def search_contacts(query: str) -> List[ContactDTO]:
     """Search WhatsApp contacts by name or phone number.
     
     Args:
         query: Search term to match against contact names or phone numbers
     """
     contacts = whatsapp_search_contacts(query)
-    return contacts
+    return _contract(contacts)
 
 @mcp.tool()
 def list_messages(
@@ -40,7 +99,7 @@ def list_messages(
     include_context: bool = True,
     context_before: int = 1,
     context_after: int = 1
-) -> List[Dict[str, Any]]:
+) -> List[MessageDTO]:
     """Get WhatsApp messages matching specified criteria with optional context.
     
     Args:
@@ -67,7 +126,7 @@ def list_messages(
         context_before=context_before,
         context_after=context_after
     )
-    return messages
+    return _contract(messages)
 
 @mcp.tool()
 def list_chats(
@@ -76,7 +135,7 @@ def list_chats(
     page: int = 0,
     include_last_message: bool = True,
     sort_by: str = "last_active"
-) -> List[Dict[str, Any]]:
+) -> List[ChatDTO]:
     """Get WhatsApp chats matching specified criteria.
     
     Args:
@@ -93,10 +152,10 @@ def list_chats(
         include_last_message=include_last_message,
         sort_by=sort_by
     )
-    return chats
+    return _contract(chats)
 
 @mcp.tool()
-def get_chat(chat_jid: str, include_last_message: bool = True) -> Dict[str, Any]:
+def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[ChatDTO]:
     """Get WhatsApp chat metadata by JID.
     
     Args:
@@ -104,20 +163,20 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Dict[str, Any]
         include_last_message: Whether to include the last message (default True)
     """
     chat = whatsapp_get_chat(chat_jid, include_last_message)
-    return chat
+    return _contract(chat)
 
 @mcp.tool()
-def get_direct_chat_by_contact(sender_phone_number: str) -> Dict[str, Any]:
+def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[ChatDTO]:
     """Get WhatsApp chat metadata by sender phone number.
     
     Args:
         sender_phone_number: The phone number to search for
     """
     chat = whatsapp_get_direct_chat_by_contact(sender_phone_number)
-    return chat
+    return _contract(chat)
 
 @mcp.tool()
-def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Dict[str, Any]]:
+def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[ChatDTO]:
     """Get all WhatsApp chats involving the contact.
     
     Args:
@@ -126,24 +185,24 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Dict[str
         page: Page number for pagination (default 0)
     """
     chats = whatsapp_get_contact_chats(jid, limit, page)
-    return chats
+    return _contract(chats)
 
 @mcp.tool()
-def get_last_interaction(jid: str) -> str:
+def get_last_interaction(jid: str) -> Optional[MessageDTO]:
     """Get most recent WhatsApp message involving the contact.
     
     Args:
         jid: The JID of the contact to search for
     """
     message = whatsapp_get_last_interaction(jid)
-    return message
+    return _contract(message)
 
 @mcp.tool()
 def get_message_context(
     message_id: str,
     before: int = 5,
     after: int = 5
-) -> Dict[str, Any]:
+) -> MessageContextDTO:
     """Get context around a specific WhatsApp message.
     
     Args:
@@ -152,13 +211,13 @@ def get_message_context(
         after: Number of messages to include after the target message (default 5)
     """
     context = whatsapp_get_message_context(message_id, before, after)
-    return context
+    return _contract(context)
 
 @mcp.tool()
 def send_message(
     recipient: str,
     message: str
-) -> Dict[str, Any]:
+) -> ActionResult:
     """Send a WhatsApp message to a person or group. For group chats use the JID.
 
     Args:
@@ -184,7 +243,7 @@ def send_message(
     }
 
 @mcp.tool()
-def send_file(recipient: str, media_path: str) -> Dict[str, Any]:
+def send_file(recipient: str, media_path: str) -> ActionResult:
     """Send a file such as a picture, raw audio, video or document via WhatsApp to the specified recipient. For group messages use the JID.
     
     Args:
@@ -204,7 +263,7 @@ def send_file(recipient: str, media_path: str) -> Dict[str, Any]:
     }
 
 @mcp.tool()
-def send_audio_message(recipient: str, media_path: str) -> Dict[str, Any]:
+def send_audio_message(recipient: str, media_path: str) -> ActionResult:
     """Send any audio file as a WhatsApp audio message to the specified recipient. For group messages use the JID. If it errors due to ffmpeg not being installed, use send_file instead.
     
     Args:
@@ -222,7 +281,7 @@ def send_audio_message(recipient: str, media_path: str) -> Dict[str, Any]:
     }
 
 @mcp.tool()
-def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
+def download_media(message_id: str, chat_jid: str) -> MediaResult:
     """Download media from a WhatsApp message and get the local file path.
     
     Args:

@@ -20,7 +20,7 @@ import json
 import audio
 
 MESSAGES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'messages.db')
-WHATSAPP_API_BASE_URL = "http://localhost:8080/api"
+WHATSAPP_API_BASE_URL = "http://localhost:8080/api/v1"
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "")
 
 
@@ -28,6 +28,14 @@ def _api_headers():
     if not WHATSAPP_API_TOKEN:
         raise RuntimeError("WHATSAPP_API_TOKEN is required")
     return {"Authorization": f"Bearer {WHATSAPP_API_TOKEN}"}
+
+
+def _bridge_response(response):
+    payload = response.json()
+    if payload.get("success"):
+        return True, payload.get("data") or {}
+    error = payload.get("error") or {}
+    return False, {"message": error.get("message", f"HTTP {response.status_code}")}
 
 
 def _connect():
@@ -72,6 +80,7 @@ class Message:
     id: str
     chat_name: Optional[str] = None
     media_type: Optional[str] = None
+    sender_name: Optional[str] = None
 
 @dataclass
 class Chat:
@@ -138,7 +147,7 @@ def get_sender_name(sender_jid: str) -> str:
         if 'conn' in locals():
             conn.close()
 
-def format_message(message: Message, show_chat_info: bool = True) -> None:
+def format_message(message: Message, show_chat_info: bool = True) -> str:
     """Print a single message with consistent formatting."""
     output = ""
     ts = _localize_dt(message.timestamp)
@@ -154,13 +163,13 @@ def format_message(message: Message, show_chat_info: bool = True) -> None:
         content_prefix = f"[{message.media_type} - Message ID: {message.id} - Chat JID: {message.chat_jid}] "
     
     try:
-        sender_name = get_sender_name(message.sender) if not message.is_from_me else "Me"
+        sender_name = getattr(message, "sender_name", None) or (get_sender_name(message.sender) if not message.is_from_me else "Me")
         output += f"From: {sender_name}: {content_prefix}{message.content}\n"
     except Exception as e:
         print(f"Error formatting message: {e}")
     return output
 
-def format_messages_list(messages: List[Message], show_chat_info: bool = True) -> None:
+def format_messages_list(messages: List[Message], show_chat_info: bool = True) -> str:
     output = ""
     if not messages:
         output += "No messages to display."
@@ -248,7 +257,8 @@ def list_messages(
                 is_from_me=msg[4],
                 chat_jid=msg[5],
                 id=msg[6],
-                media_type=msg[7]
+                media_type=msg[7],
+                sender_name="Me" if msg[4] else get_sender_name(msg[1])
             )
             result.append(message)
             
@@ -261,10 +271,9 @@ def list_messages(
                 messages_with_context.append(context.message)
                 messages_with_context.extend(context.after)
             
-            return format_messages_list(messages_with_context, show_chat_info=True)
-            
-        # Format and display messages without context
-        return format_messages_list(result, show_chat_info=True)    
+            return messages_with_context
+
+        return result
         
     except sqlite3.Error as e:
         print(f"Database error: {e}")
@@ -304,7 +313,8 @@ def get_message_context(
             is_from_me=msg_data[4],
             chat_jid=msg_data[5],
             id=msg_data[6],
-            media_type=msg_data[8]
+            media_type=msg_data[8],
+            sender_name="Me" if msg_data[4] else get_sender_name(msg_data[1])
         )
         
         # Get messages before, including the contact's phone/LID alias.
@@ -329,8 +339,10 @@ def get_message_context(
                 is_from_me=msg[4],
                 chat_jid=msg[5],
                 id=msg[6],
-                media_type=msg[7]
+                media_type=msg[7],
+                sender_name="Me" if msg[4] else get_sender_name(msg[1])
             ))
+
         
         # Get messages after
         cursor.execute(f"""
@@ -352,9 +364,10 @@ def get_message_context(
                 is_from_me=msg[4],
                 chat_jid=msg[5],
                 id=msg[6],
-                media_type=msg[7]
+                media_type=msg[7],
+                sender_name="Me" if msg[4] else get_sender_name(msg[1])
             ))
-        
+
         return MessageContext(
             message=target_message,
             before=before_messages,
@@ -484,7 +497,7 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Chat]:
             conn.close()
 
 
-def get_last_interaction(jid: str) -> str:
+def get_last_interaction(jid: str) -> Optional[Message]:
     """Get most recent message involving the contact."""
     try:
         conn = _connect()
@@ -511,10 +524,11 @@ def get_last_interaction(jid: str) -> str:
             is_from_me=msg_data[4],
             chat_jid=msg_data[5],
             id=msg_data[6],
-            media_type=msg_data[7]
+            media_type=msg_data[7],
+            sender_name="Me" if msg_data[4] else get_sender_name(msg_data[1])
         )
-        
-        return format_message(message)
+
+        return message
         
     except sqlite3.Error as e:
         print(f"Database error: {e}")
@@ -569,12 +583,9 @@ def send_message(recipient: str, message: str) -> Tuple[bool, str]:
 
         response = requests.post(url, json=payload, headers=_api_headers())
 
-        # Check if the request was successful
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("success", False), result.get("message", "Unknown response")
-        else:
-            return False, f"Error: HTTP {response.status_code} - {response.text}"
+        success, data = _bridge_response(response)
+        return success, data.get("message", "Unknown response")
+
             
     except requests.RequestException as e:
         return False, f"Request error: {str(e)}"
@@ -603,13 +614,8 @@ def send_file(recipient: str, media_path: str) -> Tuple[bool, str]:
 
         response = requests.post(url, json=payload, headers=_api_headers())
 
-        # Check if the request was successful
-
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("success", False), result.get("message", "Unknown response")
-        else:
-            return False, f"Error: HTTP {response.status_code} - {response.text}"
+        success, data = _bridge_response(response)
+        return success, data.get("message", "Unknown response")
             
     except requests.RequestException as e:
         return False, f"Request error: {str(e)}"
@@ -643,13 +649,9 @@ def send_audio_message(recipient: str, media_path: str) -> Tuple[bool, str]:
         }
 
         response = requests.post(url, json=payload, headers=_api_headers())
-        
-        # Check if the request was successful
-        if response.status_code == 200:
-            result = response.json()
-            return result.get("success", False), result.get("message", "Unknown response")
-        else:
-            return False, f"Error: HTTP {response.status_code} - {response.text}"
+
+        success, data = _bridge_response(response)
+        return success, data.get("message", "Unknown response")
             
     except requests.RequestException as e:
         return False, f"Request error: {str(e)}"
@@ -677,18 +679,13 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
 
         response = requests.post(url, json=payload, headers=_api_headers())
 
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("success", False):
-                path = result.get("path")
-                print(f"Media downloaded successfully: {path}")
-                return path
-            else:
-                print(f"Download failed: {result.get('message', 'Unknown error')}")
-                return None
-        else:
-            print(f"Error: HTTP {response.status_code} - {response.text}")
-            return None
+        success, data = _bridge_response(response)
+        if success:
+            path = data.get("path")
+            print(f"Media downloaded successfully: {path}")
+            return path
+        print(f"Download failed: {data.get('message', 'Unknown error')}")
+        return None
             
     except requests.RequestException as e:
         print(f"Request error: {str(e)}")
