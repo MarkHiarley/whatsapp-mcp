@@ -11,7 +11,9 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from datetime import datetime, timezone, timedelta
 import whatsapp
-from whatsapp import _identity_aliases, _localize_dt, _tz_name, format_message
+from main import _contract
+from whatsapp import Message as ContractMessage
+from whatsapp import _bridge_response, _identity_aliases, _localize_dt, _tz_name, format_message
 from dataclasses import dataclass
 from typing import Optional
 
@@ -111,6 +113,45 @@ def test_format_message_media():
     print(f"  ✅ {output.strip()}")
 
 
+def test_mcp_message_contract():
+    """Mensagem MCP deve ser JSON estruturado com timestamp ISO-8601."""
+    payload = _contract(ContractMessage(
+        id="contract-1",
+        timestamp=datetime(2026, 8, 18, 20, 0, 0),
+        sender="5511999999999",
+        sender_name="Contato",
+        content="Olá",
+        is_from_me=False,
+        chat_jid="5511999999999@s.whatsapp.net",
+        chat_name="Contato",
+    ))
+    assert set(payload) == {
+        "id", "timestamp", "sender", "sender_name", "content", "is_from_me",
+        "chat_jid", "chat_name", "media_type"
+    }
+    assert datetime.fromisoformat(payload["timestamp"]).tzinfo is not None
+    print("  ✅ contrato MCP retorna mensagem estruturada")
+
+
+def test_bridge_response_contract():
+    """Cliente Python deve consumir o envelope da API v1."""
+    class Response:
+        status_code = 400
+
+        @staticmethod
+        def json():
+            return {
+                "success": False,
+                "data": None,
+                "error": {"code": "INVALID_REQUEST", "message": "Recipient is required"},
+            }
+
+    success, data = _bridge_response(Response())
+    assert not success
+    assert data == {"message": "Recipient is required"}
+    print("  ✅ cliente Python interpreta envelope da API v1")
+
+
 def test_api_token_header():
     """Chamadas REST devem enviar o token configurado."""
     original_token = whatsapp.WHATSAPP_API_TOKEN
@@ -165,6 +206,8 @@ if __name__ == "__main__":
         test_format_message_tz,
         test_format_message_no_chat,
         test_format_message_media,
+        test_mcp_message_contract,
+        test_bridge_response_contract,
         test_api_token_header,
         test_lid_identity_aliases,
     ]

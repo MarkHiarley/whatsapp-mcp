@@ -59,7 +59,7 @@ set -a; . ./.env; set +a
 Enviar mensagem:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/send \
+curl -X POST http://127.0.0.1:8080/api/v1/send \
   -H "Authorization: Bearer $WHATSAPP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"recipient":"5511999999999","message":"Olá!"}'
@@ -68,13 +68,15 @@ curl -X POST http://127.0.0.1:8080/api/send \
 Baixar mídia:
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/download \
+curl -X POST http://127.0.0.1:8080/api/v1/download \
   -H "Authorization: Bearer $WHATSAPP_API_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message_id":"...","chat_jid":"...@s.whatsapp.net"}'
 ```
 
-O token é obrigatório, não possui valor padrão e deve permanecer somente no `.env` local.
+O token é obrigatório, não possui valor padrão e deve permanecer somente no `.env` local. As respostas da API v1 usam o envelope `{success, data, error}` documentado em [`contracts/openapi.yaml`](contracts/openapi.yaml). As rotas antigas `/api/send` e `/api/download` permanecem temporariamente disponíveis para compatibilidade.
+
+As ferramentas MCP retornam mensagens, chats e contatos como objetos JSON estruturados, não como texto pré-formatado.
 
 ## Execução manual
 
@@ -104,6 +106,7 @@ cd ../whatsapp-mcp-server && uv run python test_main.py
 
 ```text
 whatsapp-mcp/
+├── contracts/              # Contrato OpenAPI da API v1
 ├── whatsapp-bridge/        # Bridge Go, REST e conexão WhatsApp
 ├── whatsapp-mcp-server/    # Servidor MCP Python
 ├── docker-entrypoint.sh    # Inicialização do bridge
