@@ -13,9 +13,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 from datetime import datetime, timezone, timedelta
 from unittest import mock
 from pathlib import Path
+import asyncio
 import approvals
 import audit
 import main as mcp_main
+import remote
 import whatsapp
 from main import _contract
 from whatsapp import Message
@@ -474,6 +476,68 @@ def test_audit_log_redacts_message_and_recipient():
 
 
 
+def test_remote_token_store_maps_tenant_and_scopes():
+    """Token HTTP vira tenant + scopes + bridge token sem expor valores."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    file = tmp / "tokens.json"
+    file.write_text(json.dumps({
+        "tokens": {
+            "mcp-test-token-0123456789abcdef": {
+                "tenant": "cliente-x",
+                "api_token": "bridge-key",
+                "scopes": ["read"],
+                "client_id": "agent-read",
+            }
+        }
+    }), encoding="utf-8")
+    file.chmod(0o600)
+    old = {k: os.environ.get(k) for k in ("WHATSAPP_MCP_AUTH_TOKENS_FILE", "WHATSAPP_MCP_AUTH_TOKENS")}
+    try:
+        os.environ.pop("WHATSAPP_MCP_AUTH_TOKENS", None)
+        os.environ["WHATSAPP_MCP_AUTH_TOKENS_FILE"] = str(file)
+        tokens = remote.load_tokens()
+        assert "mcp-test-token-0123456789abcdef" in tokens
+        access = asyncio.run(remote.TokenStore(tokens).verify_token("mcp-test-token-0123456789abcdef"))
+        assert access is not None
+        assert access.scopes == ["read"]
+        assert access.claims["tenant"] == "cliente-x"
+        assert access.claims["api_token"] == "bridge-key"
+        assert asyncio.run(remote.TokenStore(tokens).verify_token("wrong")) is None
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("  ✅ token remoto mapeia tenant, scopes e bridge key")
+
+
+def test_remote_token_file_must_be_private():
+    """Arquivo de tokens legível por outros deve ser recusado."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    file = tmp / "tokens.json"
+    file.write_text('{"tokens":{}}', encoding="utf-8")
+    file.chmod(0o644)
+    old = os.environ.get("WHATSAPP_MCP_AUTH_TOKENS_FILE")
+    try:
+        os.environ["WHATSAPP_MCP_AUTH_TOKENS_FILE"] = str(file)
+        try:
+            remote.load_tokens()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("insecure token file must be rejected")
+    finally:
+        if old is None:
+            os.environ.pop("WHATSAPP_MCP_AUTH_TOKENS_FILE", None)
+        else:
+            os.environ["WHATSAPP_MCP_AUTH_TOKENS_FILE"] = old
+    print("  ✅ arquivo de tokens exige modo 600")
+
+
+
 # ─── Rodar ───────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"\n🔍 Testes do WhatsApp MCP (fuso: {_tz_name})\n")
@@ -502,6 +566,8 @@ if __name__ == "__main__":
         test_outbox_rejects_paths_outside_and_symlinks,
         test_file_approval_detects_content_change,
         test_audit_log_redacts_message_and_recipient,
+        test_remote_token_store_maps_tenant_and_scopes,
+        test_remote_token_file_must_be_private,
     ]
     passed = 0
     for t in tests:

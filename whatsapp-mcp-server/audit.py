@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from approvals import state_dir
+import whatsapp
 
 _LOCK = threading.Lock()
 
@@ -68,28 +69,55 @@ def _fields(fn: Callable[..., Any], args: tuple[Any, ...], kwargs: dict[str, Any
     return fields
 
 
-def audited(fn: Callable[..., Any]) -> Callable[..., Any]:
-    """Wrap one MCP tool with a metadata-only audit record."""
+def _scopes() -> list[str] | None:
+    """Return the bearer scopes, or None for trusted STDIO/env mode."""
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+        token = get_access_token()
+    except Exception:
+        return None
+    return None if token is None else list(token.scopes)
 
-    @wraps(fn)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        started = time.monotonic()
-        record: dict[str, Any] = {
-            "ts": time.time(),
-            "tool": fn.__name__,
-            "tenant": os.getenv("WHATSAPP_TENANT_ID", "default"),
-            **_fields(fn, args, kwargs),
-        }
-        try:
-            result = fn(*args, **kwargs)
-            record["outcome"] = "ok"
-            return result
-        except Exception as exc:  # noqa: BLE001 - logged and re-raised
-            record["outcome"] = "error"
-            record["error"] = type(exc).__name__
-            raise
-        finally:
-            record["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
-            _append(record)
 
-    return wrapper
+def _allowed(scope: str) -> bool:
+    scopes = _scopes()
+    return scopes is None or scope in scopes
+
+
+def audited(fn: Callable[..., Any] | None = None, *, required_scope: str | None = None):
+    """Wrap one MCP tool with audit metadata and optional scope enforcement."""
+
+    def decorate(function: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(function)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            whatsapp.bind_from_access_token()
+            started = time.monotonic()
+            record: dict[str, Any] = {
+                "ts": time.time(),
+                "tool": function.__name__,
+                "tenant": whatsapp.current_tenant(),
+                **_fields(function, args, kwargs),
+            }
+            if required_scope is not None and not _allowed(required_scope):
+                record["outcome"] = "denied"
+                record["error"] = "PermissionError"
+                record["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
+                _append(record)
+                raise PermissionError(f"scope {required_scope!r} is required")
+            try:
+                result = function(*args, **kwargs)
+                record["outcome"] = "ok"
+                return result
+            except Exception as exc:  # noqa: BLE001 - logged and re-raised
+                record["outcome"] = "error"
+                record["error"] = type(exc).__name__
+                raise
+            finally:
+                record["duration_ms"] = round((time.monotonic() - started) * 1000, 1)
+                _append(record)
+
+        return wrapper
+
+    if fn is None:
+        return decorate
+    return decorate(fn)
