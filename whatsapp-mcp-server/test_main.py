@@ -12,6 +12,10 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from datetime import datetime, timezone, timedelta
 from unittest import mock
+from pathlib import Path
+import approvals
+import audit
+import main as mcp_main
 import whatsapp
 from main import _contract
 from whatsapp import Message
@@ -328,6 +332,148 @@ def test_ack_rejeita_consumer_id_invalido():
     print("  ✅ ack_events valida consumer_id antes de montar a URL")
 
 
+def test_approvals_are_single_use_and_tenant_bound():
+    """Aprovação expira, é de uso único e não cruza tenant."""
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    old = {k: os.environ.get(k) for k in (
+        "WHATSAPP_MCP_APPROVALS_DB", "WHATSAPP_MCP_APPROVAL_TTL_SECONDS", "WHATSAPP_MCP_OUTBOX_DIR"
+    )}
+    try:
+        os.environ["WHATSAPP_MCP_APPROVALS_DB"] = str(Path(tmp) / "approvals.db")
+        os.environ["WHATSAPP_MCP_APPROVAL_TTL_SECONDS"] = "60"
+        os.environ["WHATSAPP_MCP_OUTBOX_DIR"] = str(Path(tmp) / "outbox")
+        created = approvals.create(tenant_id="t1", kind="message", recipient="5511999999999", text="oi")
+        assert created["approval_id"].startswith("ap_")
+        assert approvals.consume(tenant_id="t2", approval_id=created["approval_id"]) is None
+        consumed = approvals.consume(tenant_id="t1", approval_id=created["approval_id"])
+        assert consumed and consumed["text"] == "oi"
+        assert approvals.consume(tenant_id="t1", approval_id=created["approval_id"]) is None
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("  ✅ aprovação de uso único e vinculada ao tenant")
+
+
+def test_confirm_send_requires_confirmation_and_consumes_approval():
+    """confirm_send não envia com confirm=false e consome a aprovação com true."""
+    import tempfile
+    tmp = tempfile.mkdtemp()
+    old = {k: os.environ.get(k) for k in (
+        "WHATSAPP_MCP_APPROVALS_DB", "WHATSAPP_MCP_APPROVAL_TTL_SECONDS"
+    )}
+    try:
+        os.environ["WHATSAPP_MCP_APPROVALS_DB"] = str(Path(tmp) / "approvals.db")
+        os.environ["WHATSAPP_MCP_APPROVAL_TTL_SECONDS"] = "60"
+        approval = approvals.create(tenant_id="default", kind="message", recipient="5511999999999", text="oi")
+        with mock.patch.object(mcp_main, "whatsapp_send_message", return_value=(True, "sent")) as send:
+            denied = mcp_main.confirm_send(approval["approval_id"], False)
+            assert not denied["success"] and send.call_count == 0
+            sent = mcp_main.confirm_send(approval["approval_id"], True)
+            assert sent["success"] and send.call_count == 1
+            again = mcp_main.confirm_send(approval["approval_id"], True)
+            assert not again["success"] and send.call_count == 1
+    finally:
+        for key, value in old.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("  ✅ confirm_send exige confirm=true e é de uso único")
+
+
+def test_outbox_rejects_paths_outside_and_symlinks():
+    """Arquivos de envio ficam confinados ao outbox."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    outbox = tmp / "outbox"
+    outbox.mkdir()
+    inside = outbox / "doc.txt"
+    inside.write_text("ok", encoding="utf-8")
+    outside = tmp / "outside.txt"
+    outside.write_text("nope", encoding="utf-8")
+    old = os.environ.get("WHATSAPP_MCP_OUTBOX_DIR")
+    try:
+        os.environ["WHATSAPP_MCP_OUTBOX_DIR"] = str(outbox)
+        assert approvals.resolve_outbox_file("doc.txt") == inside.resolve()
+        for bad in [str(outside), "../outside.txt"]:
+            try:
+                approvals.resolve_outbox_file(bad)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError(f"path should be rejected: {bad}")
+    finally:
+        if old is None:
+            os.environ.pop("WHATSAPP_MCP_OUTBOX_DIR", None)
+        else:
+            os.environ["WHATSAPP_MCP_OUTBOX_DIR"] = old
+    print("  ✅ outbox rejeita paths fora do diretório")
+
+
+def test_file_approval_detects_content_change():
+    """O hash capturado no draft impede troca do arquivo antes do envio."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    outbox = tmp / "outbox"
+    outbox.mkdir()
+    media = outbox / "doc.txt"
+    media.write_text("versão aprovada", encoding="utf-8")
+    old_db = os.environ.get("WHATSAPP_MCP_APPROVALS_DB")
+    old_outbox = os.environ.get("WHATSAPP_MCP_OUTBOX_DIR")
+    try:
+        os.environ["WHATSAPP_MCP_APPROVALS_DB"] = str(tmp / "approvals.db")
+        os.environ["WHATSAPP_MCP_OUTBOX_DIR"] = str(outbox)
+        digest = approvals.hash_file(media)
+        created = approvals.create(
+            tenant_id="default", kind="file", recipient="5511999999999",
+            file_path=media.resolve(), file_sha256=digest,
+        )
+        assert approvals.file_still_matches(created)
+        media.write_text("outra coisa", encoding="utf-8")
+        assert not approvals.file_still_matches(created)
+    finally:
+        for key, value in (("WHATSAPP_MCP_APPROVALS_DB", old_db), ("WHATSAPP_MCP_OUTBOX_DIR", old_outbox)):
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+    print("  ✅ hash do arquivo aprovado é revalidado")
+
+
+def test_audit_log_redacts_message_and_recipient():
+    """Auditoria registra metadados, nunca conteúdo ou telefone."""
+    import tempfile
+    tmp = Path(tempfile.mkdtemp())
+    log = tmp / "audit.jsonl"
+    old = os.environ.get("WHATSAPP_MCP_AUDIT_LOG")
+    try:
+        os.environ["WHATSAPP_MCP_AUDIT_LOG"] = str(log)
+
+        @audit.audited
+        def fake_tool(recipient: str, message: str) -> str:
+            return message
+
+        assert fake_tool("5511999999999", "segredo absoluto") == "segredo absoluto"
+        raw = log.read_text(encoding="utf-8")
+        assert "segredo absoluto" not in raw
+        assert "5511999999999" not in raw
+        record = json.loads(raw.strip().splitlines()[-1])
+        assert record["tool"] == "fake_tool"
+        assert record["outcome"] == "ok"
+        assert record["recipient_hash"]
+    finally:
+        if old is None:
+            os.environ.pop("WHATSAPP_MCP_AUDIT_LOG", None)
+        else:
+            os.environ["WHATSAPP_MCP_AUDIT_LOG"] = old
+    print("  ✅ auditoria redige conteúdo e telefone")
+
+
+
 # ─── Rodar ───────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"\n🔍 Testes do WhatsApp MCP (fuso: {_tz_name})\n")
@@ -351,6 +497,11 @@ if __name__ == "__main__":
         test_wait_for_events_retorna_no_primeiro_lote,
         test_wait_for_events_poll_e_timeout,
         test_ack_rejeita_consumer_id_invalido,
+        test_approvals_are_single_use_and_tenant_bound,
+        test_confirm_send_requires_confirmation_and_consumes_approval,
+        test_outbox_rejects_paths_outside_and_symlinks,
+        test_file_approval_detects_content_change,
+        test_audit_log_redacts_message_and_recipient,
     ]
     passed = 0
     for t in tests:
