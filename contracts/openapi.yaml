@@ -865,7 +865,7 @@ components:
         filename: { type: string }
     TenantStats:
       type: object
-      required: [tenant_id, status, chats, messages, events, keys]
+      required: [tenant_id, status, chats, messages, events, keys, messages_by_day]
       properties:
         tenant_id: { type: string }
         status:
@@ -876,6 +876,15 @@ components:
         events: { type: integer }
         keys: { type: integer }
         last_message_time: { type: string, format: date-time }
+        messages_by_day:
+          type: array
+          items: { $ref: '#/components/schemas/DailyMessage' }
+    DailyMessage:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string, examples: ['2026-11-21'] }
+        count: { type: integer }
     ChatListResponse:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'
