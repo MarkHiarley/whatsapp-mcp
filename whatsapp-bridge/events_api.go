@@ -27,15 +27,17 @@ type updateRuleRequest struct {
 }
 
 type createWebhookRequest struct {
-	URL     string `json:"url"`
-	RuleID  string `json:"rule_id"`
-	Enabled *bool  `json:"enabled"`
+	URL     string            `json:"url"`
+	RuleID  string            `json:"rule_id"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Enabled *bool             `json:"enabled"`
 }
 
 type updateWebhookRequest struct {
-	URL     *string `json:"url"`
-	RuleID  *string `json:"rule_id"`
-	Enabled *bool   `json:"enabled"`
+	URL     *string           `json:"url"`
+	RuleID  *string           `json:"rule_id"`
+	Headers map[string]string `json:"headers"`
+	Enabled *bool             `json:"enabled"`
 }
 
 // eventsRuntime resolves the path tenant and its live store.
@@ -405,6 +407,11 @@ func (a *tenantAPI) createWebhook(w http.ResponseWriter, r *http.Request, rt *te
 		writeAPIError(w, http.StatusNotFound, "NOT_FOUND", "Rule not found")
 		return
 	}
+	headers, err := normalizeWebhookHeaders(req.Headers)
+	if err != nil {
+		writeAPIError(w, http.StatusBadRequest, "WEBHOOK_INVALID", err.Error())
+		return
+	}
 
 	id, err := newEventID("webhook_")
 	if err != nil {
@@ -425,6 +432,7 @@ func (a *tenantAPI) createWebhook(w http.ResponseWriter, r *http.Request, rt *te
 		URL:       strings.TrimSpace(req.URL),
 		Secret:    secret,
 		RuleID:    req.RuleID,
+		Headers:   headers,
 		Enabled:   enabled,
 		CreatedAt: time.Now().UTC(),
 	}
@@ -461,7 +469,7 @@ func (a *tenantAPI) handleTenantWebhook(w http.ResponseWriter, r *http.Request, 
 			writeAPIError(w, http.StatusBadRequest, "INVALID_REQUEST", "Invalid request format")
 			return
 		}
-		if req.URL == nil && req.RuleID == nil && req.Enabled == nil {
+		if req.URL == nil && req.RuleID == nil && req.Headers == nil && req.Enabled == nil {
 			writeAPIError(w, http.StatusBadRequest, "INVALID_REQUEST", "At least one field is required")
 			return
 		}
@@ -481,6 +489,14 @@ func (a *tenantAPI) handleTenantWebhook(w http.ResponseWriter, r *http.Request, 
 				return
 			}
 			webhook.RuleID = *req.RuleID
+		}
+		if req.Headers != nil {
+			headers, err := normalizeWebhookHeaders(req.Headers)
+			if err != nil {
+				writeAPIError(w, http.StatusBadRequest, "WEBHOOK_INVALID", err.Error())
+				return
+			}
+			webhook.Headers = headers
 		}
 		if req.Enabled != nil {
 			webhook.Enabled = *req.Enabled

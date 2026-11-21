@@ -73,6 +73,31 @@ func TestRuleMatchTextAndFlags(t *testing.T) {
 	}
 }
 
+func TestRuleMatchMediaAndReply(t *testing.T) {
+	ev := baseEvent()
+	ev.MediaType = "image"
+	ev.IsReplyToMe = true
+
+	if !(RuleMatch{HasMedia: boolPtr(true)}).Matches(ev) {
+		t.Fatal("has_media=true should match an image event")
+	}
+	if (RuleMatch{HasMedia: boolPtr(false)}).Matches(ev) {
+		t.Fatal("has_media=false must not match an image event")
+	}
+	if !(RuleMatch{MediaTypes: []string{"image"}}).Matches(ev) {
+		t.Fatal("media_types=image should match")
+	}
+	if (RuleMatch{MediaTypes: []string{"audio"}}).Matches(ev) {
+		t.Fatal("media_types=audio must not match an image event")
+	}
+	if !(RuleMatch{IsReplyToMe: boolPtr(true)}).Matches(ev) {
+		t.Fatal("is_reply_to_me=true should match")
+	}
+	if (RuleMatch{IsReplyToMe: boolPtr(false)}).Matches(ev) {
+		t.Fatal("is_reply_to_me=false must not match a reply")
+	}
+}
+
 func TestRuleMatchEmptyMatchesEverything(t *testing.T) {
 	if !(RuleMatch{}).Matches(baseEvent()) {
 		t.Fatal("an empty rule is an explicit catch-all")

@@ -469,6 +469,7 @@ export interface components {
             is_group: boolean;
             is_from_me: boolean;
             mentioned_me: boolean;
+            is_reply_to_me: boolean;
             content: string;
             media_type?: string;
             /** Format: date-time */
@@ -483,6 +484,9 @@ export interface components {
             is_group?: boolean;
             is_from_me?: boolean;
             mentioned_me?: boolean;
+            is_reply_to_me?: boolean;
+            has_media?: boolean;
+            media_types?: ("image" | "video" | "audio" | "document" | "sticker")[];
             text_contains?: string[];
             text_regex?: string;
         };
@@ -516,6 +520,7 @@ export interface components {
             /** Format: uri */
             url: string;
             rule_id: string;
+            header_names?: string[];
             enabled: boolean;
             /** Format: date-time */
             created_at: string;
@@ -524,6 +529,10 @@ export interface components {
             /** Format: uri */
             url: string;
             rule_id: string;
+            /** @description Headers fixos enviados em toda entrega (ex. Authorization). */
+            headers?: {
+                [key: string]: string;
+            };
             /** @default true */
             enabled: boolean;
         };
@@ -531,6 +540,10 @@ export interface components {
             /** Format: uri */
             url?: string;
             rule_id?: string;
+            /** @description Substitui os headers fixos; envie {} para remover. */
+            headers?: {
+                [key: string]: string;
+            };
             enabled?: boolean;
         };
         DeliveryView: {

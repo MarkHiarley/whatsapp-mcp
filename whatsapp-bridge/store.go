@@ -225,10 +225,10 @@ func (store *MessageStore) StoreMessage(m StoredMessage, meta *MessageEventMeta)
 	if meta != nil {
 		_, err = tx.Exec(
 			`INSERT OR IGNORE INTO events
-			(message_id, chat_jid, chat_name, sender_jid, sender_name, is_group, is_from_me, mentioned_me, content, media_type, timestamp, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			(message_id, chat_jid, chat_name, sender_jid, sender_name, is_group, is_from_me, mentioned_me, is_reply_to_me, content, media_type, timestamp, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			m.ID, m.ChatJID, meta.ChatName, meta.SenderJID, meta.SenderName, meta.IsGroup, m.IsFromMe,
-			meta.MentionedMe, m.Content, m.MediaType, m.Timestamp, time.Now().UTC(),
+			meta.MentionedMe, meta.IsReplyToMe, m.Content, m.MediaType, m.Timestamp, time.Now().UTC(),
 		)
 		if err != nil {
 			return 0, err

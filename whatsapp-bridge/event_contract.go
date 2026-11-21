@@ -20,6 +20,7 @@ type Event struct {
 	IsGroup     bool      `json:"is_group"`
 	IsFromMe    bool      `json:"is_from_me"`
 	MentionedMe bool      `json:"mentioned_me"`
+	IsReplyToMe bool      `json:"is_reply_to_me"`
 	Content     string    `json:"content"`
 	MediaType   string    `json:"media_type,omitempty"`
 	Timestamp   time.Time `json:"timestamp"`
@@ -34,6 +35,7 @@ type MessageEventMeta struct {
 	SenderName  string
 	IsGroup     bool
 	MentionedMe bool
+	IsReplyToMe bool
 }
 
 // StoredMessage is the frozen shape of a row written to messages.db.
@@ -61,6 +63,9 @@ type RuleMatch struct {
 	IsGroup      *bool    `json:"is_group,omitempty"`
 	IsFromMe     *bool    `json:"is_from_me,omitempty"`
 	MentionedMe  *bool    `json:"mentioned_me,omitempty"`
+	IsReplyToMe  *bool    `json:"is_reply_to_me,omitempty"`
+	HasMedia     *bool    `json:"has_media,omitempty"`
+	MediaTypes   []string `json:"media_types,omitempty"`
 	TextContains []string `json:"text_contains,omitempty"`
 	TextRegex    string   `json:"text_regex,omitempty"`
 }
@@ -113,6 +118,24 @@ func (m RuleMatch) Matches(ev Event) bool {
 	}
 	if m.MentionedMe != nil && ev.MentionedMe != *m.MentionedMe {
 		return false
+	}
+	if m.IsReplyToMe != nil && ev.IsReplyToMe != *m.IsReplyToMe {
+		return false
+	}
+	if m.HasMedia != nil && (ev.MediaType != "") != *m.HasMedia {
+		return false
+	}
+	if len(m.MediaTypes) > 0 {
+		matched := false
+		for _, want := range m.MediaTypes {
+			if strings.EqualFold(ev.MediaType, want) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
 	}
 	if len(m.TextContains) > 0 {
 		content := strings.ToLower(ev.Content)
@@ -180,6 +203,7 @@ func migrateEventSchema(db *sql.DB) error {
 			is_group INTEGER NOT NULL DEFAULT 0,
 			is_from_me INTEGER NOT NULL DEFAULT 0,
 			mentioned_me INTEGER NOT NULL DEFAULT 0,
+			is_reply_to_me INTEGER NOT NULL DEFAULT 0,
 			content TEXT,
 			media_type TEXT,
 			timestamp DATETIME,
@@ -205,6 +229,7 @@ func migrateEventSchema(db *sql.DB) error {
 			url TEXT NOT NULL,
 			secret TEXT NOT NULL,
 			rule_id TEXT NOT NULL,
+			headers_json TEXT NOT NULL DEFAULT '{}',
 			enabled INTEGER NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL
 		)`,
@@ -224,5 +249,32 @@ func migrateEventSchema(db *sql.DB) error {
 			return fmt.Errorf("failed to migrate event schema: %w", err)
 		}
 	}
-	return nil
+	if err := ensureColumn(db, "events", "is_reply_to_me", "ALTER TABLE events ADD COLUMN is_reply_to_me INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	return ensureColumn(db, "event_webhooks", "headers_json", "ALTER TABLE event_webhooks ADD COLUMN headers_json TEXT NOT NULL DEFAULT '{}'")
+}
+
+func ensureColumn(db *sql.DB, table, column, ddl string) error {
+	rows, err := db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, kind string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &kind, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(ddl)
+	return err
 }

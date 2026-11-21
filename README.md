@@ -174,6 +174,9 @@ Match fields are combined with AND. Values inside a list are combined with OR:
 | `is_group` | Group (`true`) or direct chat (`false`) |
 | `is_from_me` | Messages sent by the tenant's own number |
 | `mentioned_me` | Messages that mention the tenant's number |
+| `is_reply_to_me` | Messages that quote a message sent by the tenant's number |
+| `has_media` | Messages with (`true`) or without (`false`) media |
+| `media_types` | Media type: `image`, `video`, `audio`, `document` (any listed value matches) |
 | `text_contains` | Case-insensitive keyword |
 | `text_regex` | Regular expression on the text |
 
@@ -212,6 +215,17 @@ Each delivery carries:
 
 - `X-WhatsApp-Signature: sha256=<hex>`: HMAC-SHA256 of the raw request body, keyed with the webhook secret.
 - `X-WhatsApp-Event-Id: <tenant>:<seq>`: unique per event. Use it to deduplicate retries.
+
+Add `headers` to the create/update body to send fixed authentication headers required by an external routine or API. Values are stored with the tenant and never returned (only `header_names` is exposed). Reserved transport/signature headers are rejected.
+
+```bash
+curl -sS -X POST "$BASE/tenants/cliente-x/webhooks" \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://example.com/routine-hook","rule_id":"urgentes-grupo","headers":{"Authorization":"Bearer <routine-key>"}}'
+```
+
+A routine endpoint receives the same event JSON at its URL and can ignore the HMAC headers. Filter the rule (for example `is_from_me: false` plus specific chats) so each incoming message does not trigger an unwanted routine run.
 
 Verify the signature over the raw bytes, before parsing JSON:
 

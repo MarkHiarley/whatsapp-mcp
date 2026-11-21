@@ -20,6 +20,9 @@ function linesToArray(value: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+const MEDIA_TYPES = ["image", "video", "audio", "document"] as const;
+type MediaType = (typeof MEDIA_TYPES)[number];
+
 export function NewRuleDialog({ tenantId }: { tenantId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -32,6 +35,15 @@ export function NewRuleDialog({ tenantId }: { tenantId: string }) {
   const [isGroup, setIsGroup] = useState(false);
   const [isFromMe, setIsFromMe] = useState(false);
   const [mentionedMe, setMentionedMe] = useState(false);
+  const [isReplyToMe, setIsReplyToMe] = useState(false);
+  const [hasMedia, setHasMedia] = useState<"any" | "with" | "without">("any");
+  const [mediaTypes, setMediaTypes] = useState<MediaType[]>([]);
+
+  function toggleMediaType(type: MediaType) {
+    setMediaTypes((current) =>
+      current.includes(type) ? current.filter((value) => value !== type) : [...current, type],
+    );
+  }
 
   function reset() {
     setName("");
@@ -42,6 +54,9 @@ export function NewRuleDialog({ tenantId }: { tenantId: string }) {
     setIsGroup(false);
     setIsFromMe(false);
     setMentionedMe(false);
+    setIsReplyToMe(false);
+    setHasMedia("any");
+    setMediaTypes([]);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -75,6 +90,15 @@ export function NewRuleDialog({ tenantId }: { tenantId: string }) {
     }
     if (mentionedMe) {
       match.mentioned_me = true;
+    }
+    if (isReplyToMe) {
+      match.is_reply_to_me = true;
+    }
+    if (hasMedia !== "any") {
+      match.has_media = hasMedia === "with";
+    }
+    if (hasMedia !== "without" && mediaTypes.length > 0) {
+      match.media_types = mediaTypes;
     }
 
     setSaving(true);
@@ -187,6 +211,50 @@ export function NewRuleDialog({ tenantId }: { tenantId: string }) {
               />
               mentioned_me
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={isReplyToMe}
+                onChange={(event) => setIsReplyToMe(event.target.checked)}
+                className="size-4 accent-primary"
+              />
+              resposta à minha mensagem
+            </label>
+          </div>
+          <div className="space-y-2 rounded-md border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label htmlFor="rule-media" className="text-xs">
+                Mídia
+              </Label>
+              <select
+                id="rule-media"
+                value={hasMedia}
+                onChange={(event) => setHasMedia(event.target.value as "any" | "with" | "without")}
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+              >
+                <option value="any">qualquer</option>
+                <option value="with">com mídia</option>
+                <option value="without">sem mídia</option>
+              </select>
+            </div>
+            {hasMedia !== "without" && (
+              <div className="flex flex-wrap gap-3">
+                {MEDIA_TYPES.map((type) => (
+                  <label key={type} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={mediaTypes.includes(type)}
+                      onChange={() => toggleMediaType(type)}
+                      className="size-3.5 accent-primary"
+                    />
+                    {type}
+                  </label>
+                ))}
+              </div>
+            )}
+            {hasMedia === "without" && (
+              <p className="text-xs text-muted-foreground">Sem mídia ignora os tipos selecionados.</p>
+            )}
           </div>
           <DialogFooter showCloseButton>
             <Button type="submit" size="sm" disabled={saving}>
