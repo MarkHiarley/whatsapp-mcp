@@ -383,10 +383,8 @@ func extractDirectPathFromURL(url string) string {
 		return url // Return original URL if parsing fails
 	}
 
+	// Keep the query string (ccb/oh/oe): the CDN rejects the request with 403 without it
 	pathPart := parts[1]
-
-	// Remove query parameters
-	pathPart = strings.SplitN(pathPart, "?", 2)[0]
 
 	// Create proper direct path format
 	return "/" + pathPart
