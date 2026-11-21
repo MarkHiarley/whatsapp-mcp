@@ -57,7 +57,7 @@ Paths are relative to the store directory. In Docker, the host's `./data` is mou
 | Variable | Used by | Required | Description | Status in this branch |
 |---|---|---|---|---|
 | `WHATSAPP_API_TOKEN` | bridge, MCP | Yes | Key of the `default` tenant. Also the MCP's credential when it points at the default tenant. | Implemented |
-| `WHATSAPP_ADMIN_TOKEN` | bridge | No | Admin token for provisioning (`/api/v1/tenants`) and for managing keys and webhooks of any tenant. If unset, `/tenants` routes return `503`. | Contract |
+| `WHATSAPP_ADMIN_TOKEN` | bridge | No | Admin token for provisioning (`/api/v1/tenants`). It can also manage keys and webhooks of any tenant. Each tenant key manages the keys and webhooks of its own tenant. If unset, `/tenants` routes return `503`. | Contract |
 | `WHATSAPP_STORE_DIR` | bridge | No | Base directory for `tenants.json`, databases, and media. | Contract |
 | `WHATSAPP_TENANT_ID` | MCP | No | Tenant whose `whatsapp.db` and `messages.db` the MCP reads. | Contract |
 | `WHATSAPP_API_BASE_URL` | MCP | No | Base URL of the bridge API the MCP calls. | Contract |
@@ -69,6 +69,7 @@ Generate both tokens with `openssl rand -hex 32`. Keep them in the local `.env` 
 ### Security model
 
 - **The admin token is the trust root.** It creates and deletes tenants, and issues and revokes keys and webhooks for any tenant. Never give it to a client. Clients receive a tenant key.
+- **Tenant keys manage their own tenant.** A tenant key can list, issue, and revoke keys of its own tenant and can create, update, and delete its own webhooks. The admin token can do the same for any tenant; a tenant key on another tenant's path gets `403`.
 - **Keys are per tenant.** A tenant can have several keys, each with a label. A key authenticates requests and resolves to exactly one tenant.
 - **Keys are stored hashed.** The bridge stores the SHA-256 hash of each token in `tenants.json`. The raw token appears only once, in the response that creates the key.
 - **Revocation is immediate.** A revoked key stops working on the next request. Each key reports `last_used_at`, so you can see whether it is still in use.
@@ -131,22 +132,22 @@ curl -sS -X POST "$BASE/tenants/cliente-x/download" \
   -d '{"message_id":"...","chat_jid":"...@s.whatsapp.net"}'
 ```
 
-**6. Manage keys** (admin token). Issue a key for each client application or machine so they can be revoked separately.
+**6. Manage keys** (tenant key or admin token). Issue a key for each client application or machine so they can be revoked separately.
 
 ```bash
 # List keys (never shows the token)
 curl -sS "$BASE/tenants/cliente-x/keys" \
-  -H "Authorization: Bearer $WHATSAPP_ADMIN_TOKEN"
+  -H "Authorization: Bearer $TENANT_TOKEN"
 
 # Issue a key (the token is returned only once)
 curl -sS -X POST "$BASE/tenants/cliente-x/keys" \
-  -H "Authorization: Bearer $WHATSAPP_ADMIN_TOKEN" \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"label":"laptop-ana"}'
 
 # Revoke a key by its id (key_...)
 curl -sS -X DELETE "$BASE/tenants/cliente-x/keys/key_0123456789abcdef" \
-  -H "Authorization: Bearer $WHATSAPP_ADMIN_TOKEN"
+  -H "Authorization: Bearer $TENANT_TOKEN"
 ```
 
 **7. Create an event rule and read events by cursor.** Rules are evaluated for every incoming message. Matching messages become events with a sequence number (`seq`).
@@ -199,11 +200,11 @@ curl -sS -X POST "$BASE/tenants/cliente-x/consumers/crm/ack" \
   -d '{"rule_id":"urgentes-grupo","seq":57}'
 ```
 
-**8. Create a webhook and verify signatures** (admin token). The secret appears only in the create response:
+**8. Create a webhook and verify signatures** (tenant key or admin token). The secret appears only in the create response:
 
 ```bash
 curl -sS -X POST "$BASE/tenants/cliente-x/webhooks" \
-  -H "Authorization: Bearer $WHATSAPP_ADMIN_TOKEN" \
+  -H "Authorization: Bearer $TENANT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"url":"https://hooks.example.com/whatsapp","rule_id":"urgentes-grupo"}'
 ```
@@ -225,7 +226,7 @@ def verify_signature(secret: str, raw_body: bytes, signature_header: str) -> boo
     return hmac.compare_digest(expected, signature_header)
 ```
 
-Other webhook operations (admin token): list `GET .../webhooks`, update `PATCH .../webhooks/{webhookId}` (URL, rule, `enabled`), delete `DELETE .../webhooks/{webhookId}`, rotate the secret `POST .../webhooks/{webhookId}/secret` (the new secret is shown once), and inspect attempts with `GET .../webhooks/{webhookId}/deliveries?limit=50`.
+Other webhook operations (tenant key or admin token): list `GET .../webhooks`, update `PATCH .../webhooks/{webhookId}` (URL, rule, `enabled`), delete `DELETE .../webhooks/{webhookId}`, rotate the secret `POST .../webhooks/{webhookId}/secret` (the new secret is shown once), and inspect attempts with `GET .../webhooks/{webhookId}/deliveries?limit=50`.
 
 The full list of routes, request bodies, and response schemas is in [`contracts/openapi.yaml`](contracts/openapi.yaml).
 
@@ -282,7 +283,7 @@ Errors use the `{success, data, error}` envelope, with `error.code` and `error.m
 | 404 | `NOT_FOUND` | Tenant, key, rule, or webhook does not exist |
 | 405 | `METHOD_NOT_ALLOWED` | Wrong HTTP method |
 | 409 | `CONFLICT` | The `id` (tenant, rule, or key) already exists |
-| 500 | `SEND_FAILED`, `DOWNLOAD_FAILED` | WhatsApp rejected the operation |
+| 500 | `SEND_FAILED`, `DOWNLOAD_FAILED`, `INTERNAL_ERROR` | WhatsApp rejected the operation or the bridge failed internally |
 | 503 | `TENANT_DISCONNECTED` | The tenant's session is not connected |
 | 503 | `ADMIN_DISABLED` | `WHATSAPP_ADMIN_TOKEN` is not set; `/tenants` routes are unavailable |
 

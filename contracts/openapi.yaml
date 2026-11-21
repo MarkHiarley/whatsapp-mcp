@@ -747,6 +747,7 @@ components:
             - METHOD_NOT_ALLOWED
             - NOT_FOUND
             - CONFLICT
+            - INTERNAL_ERROR
             - SEND_FAILED
             - DOWNLOAD_FAILED
             - TENANT_DISCONNECTED

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -24,18 +25,24 @@ type Message struct {
 
 // Database handler for storing message history
 type MessageStore struct {
-	db *sql.DB
+	db       *sql.DB
+	mediaDir string
 }
 
-// Initialize message store
-func NewMessageStore() (*MessageStore, error) {
-	// Create directory for database if it doesn't exist
-	if err := os.MkdirAll("store", 0755); err != nil {
-		return nil, fmt.Errorf("failed to create store directory: %v", err)
+// NewMessageStoreAt opens the message database and media directory of one tenant.
+func NewMessageStoreAt(dbPath, mediaDir string) (*MessageStore, error) {
+	if dbPath == "" || mediaDir == "" {
+		return nil, fmt.Errorf("message database path and media directory are required")
+	}
+	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create message database directory: %v", err)
+	}
+	if err := os.MkdirAll(mediaDir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create media directory: %v", err)
 	}
 
 	// Open SQLite database for messages
-	db, err := sql.Open("sqlite3", "file:store/messages.db?_foreign_keys=on")
+	db, err := sql.Open("sqlite3", "file:"+dbPath+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
 		return nil, fmt.Errorf("failed to open message database: %v", err)
 	}
@@ -79,7 +86,22 @@ func NewMessageStore() (*MessageStore, error) {
 		return nil, fmt.Errorf("failed to create tables: %v", err)
 	}
 
-	return &MessageStore{db: db}, nil
+	if err := migrateEventSchema(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	return &MessageStore{db: db, mediaDir: mediaDir}, nil
+}
+
+// NewMessageStore opens the legacy default store.
+func NewMessageStore() (*MessageStore, error) {
+	return NewMessageStoreAt("store/messages.db", "store")
+}
+
+// MediaDir is the directory that receives this tenant's downloaded media.
+func (store *MessageStore) MediaDir() string {
+	return store.mediaDir
 }
 
 // Close the database connection
@@ -174,21 +196,55 @@ func (store *MessageStore) StoreChat(jid, name string, lastMessageTime time.Time
 	return err
 }
 
-// Store a message in the database
-func (store *MessageStore) StoreMessage(id, chatJID, sender, content string, timestamp time.Time, isFromMe bool,
-	mediaType, filename, url string, mediaKey, fileSHA256, fileEncSHA256 []byte, fileLength uint64) error {
+// StoreMessage writes the message and (when meta is non-nil) its event in one
+// transaction. It returns the event sequence, or 0 when no event was written.
+func (store *MessageStore) StoreMessage(m StoredMessage, meta *MessageEventMeta) (int64, error) {
 	// Only store if there's actual content or media
-	if content == "" && mediaType == "" {
-		return nil
+	if m.Content == "" && m.MediaType == "" {
+		return 0, nil
 	}
 
-	_, err := store.db.Exec(
+	tx, err := store.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(
 		`INSERT OR REPLACE INTO messages 
 		(id, chat_jid, sender, content, timestamp, is_from_me, media_type, filename, url, media_key, file_sha256, file_enc_sha256, file_length) 
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, chatJID, sender, content, timestamp, isFromMe, mediaType, filename, url, mediaKey, fileSHA256, fileEncSHA256, fileLength,
+		m.ID, m.ChatJID, m.Sender, m.Content, m.Timestamp, m.IsFromMe, m.MediaType, m.Filename, m.URL,
+		m.MediaKey, m.FileSHA256, m.FileEncSHA256, m.FileLength,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+
+	var seq int64
+	if meta != nil {
+		_, err = tx.Exec(
+			`INSERT OR IGNORE INTO events
+			(message_id, chat_jid, chat_name, sender_jid, sender_name, is_group, is_from_me, mentioned_me, content, media_type, timestamp, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			m.ID, m.ChatJID, meta.ChatName, meta.SenderJID, meta.SenderName, meta.IsGroup, m.IsFromMe,
+			meta.MentionedMe, m.Content, m.MediaType, m.Timestamp, time.Now().UTC(),
+		)
+		if err != nil {
+			return 0, err
+		}
+		if err := tx.QueryRow(
+			"SELECT seq FROM events WHERE message_id = ? AND chat_jid = ?",
+			m.ID, m.ChatJID,
+		).Scan(&seq); err != nil {
+			return 0, err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return seq, nil
 }
 
 // Get messages from a chat
