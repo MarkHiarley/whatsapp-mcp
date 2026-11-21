@@ -1,0 +1,30 @@
+{
+  "tenants": [
+    {
+      "id": "default",
+      "label": "Conta principal (paths legados)",
+      "created_at": "2026-01-01T00:00:00Z",
+      "keys": [
+        {
+          "id": "key_legacy",
+          "label": "legacy",
+          "hash": "sha256-hex-do-WHATSAPP_API_TOKEN",
+          "created_at": "2026-01-01T00:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "cliente-x",
+      "label": "Cliente X",
+      "created_at": "2026-01-02T00:00:00Z",
+      "keys": [
+        {
+          "id": "key_example",
+          "label": "mcp-prod",
+          "hash": "sha256-hex-da-key-gerada-no-create",
+          "created_at": "2026-01-02T00:00:00Z"
+        }
+      ]
+    }
+  ]
+}
