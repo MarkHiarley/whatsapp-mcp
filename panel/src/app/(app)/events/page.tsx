@@ -2,7 +2,6 @@ import Link from "next/link";
 import { connection } from "next/server";
 import { ArrowRight } from "lucide-react";
 
-import { AckForm } from "@/components/events/ack-form";
 import { EventFilters } from "@/components/events/event-filters";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -18,7 +17,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { loadEvents, loadRules } from "@/lib/api";
+import { loadEvents } from "@/lib/api";
 import { formatDateTime, truncate } from "@/lib/format";
 import { requireTenantContext } from "@/lib/session";
 
@@ -35,25 +34,20 @@ function parseAfter(value?: string): number | undefined {
 export default async function EventsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ after?: string; rule?: string }>;
+  searchParams: Promise<{ after?: string }>;
 }) {
   await connection();
 
-  const { tenantId } = await requireTenantContext();
-  const { after: afterParam, rule: ruleParam } = await searchParams;
+  await requireTenantContext();
+  const { after: afterParam } = await searchParams;
   const after = parseAfter(afterParam);
-  const rule = ruleParam?.trim() || undefined;
 
-  const [eventsResult, rulesResult] = await Promise.all([loadEvents({ after, rule }), loadRules()]);
-  const rules = rulesResult.ok ? rulesResult.data.map((item) => ({ id: item.id, name: item.name })) : [];
+  const eventsResult = await loadEvents({ after });
   const events = eventsResult.ok ? eventsResult.data.events : [];
   const nextAfter = eventsResult.ok ? eventsResult.data.nextAfter : 0;
 
   const advanceParams = new URLSearchParams();
   advanceParams.set("after", String(nextAfter));
-  if (rule) {
-    advanceParams.set("rule", rule);
-  }
 
   return (
     <>
@@ -67,8 +61,7 @@ export default async function EventsPage({
           <CardTitle className="text-sm">Filtros</CardTitle>
         </CardHeader>
         <CardContent>
-          <EventFilters rules={rules} initialAfter={after !== undefined ? String(after) : ""} initialRule={rule ?? ""} />
-          {!rulesResult.ok ? <p className="mt-2 text-xs text-muted-foreground">{rulesResult.error}</p> : null}
+          <EventFilters initialAfter={after !== undefined ? String(after) : ""} />
         </CardContent>
       </Card>
 
@@ -97,22 +90,15 @@ export default async function EventsPage({
                 title="Nenhum evento"
                 description={
                   after
-                    ? "Não há eventos após este cursor. Novos eventos aparecem aqui quando mensagens casarem com uma regra."
-                    : "Nenhum evento registrado ainda. Crie regras para começar a capturar mensagens."
+                    ? "Não há eventos após este cursor."
+                    : "Nenhum evento registrado ainda. Novos eventos aparecem quando mensagens forem recebidas."
                 }
                 action={
                   after ? (
-                    <Link
-                      href={rule ? `/events?rule=${encodeURIComponent(rule)}` : "/events"}
-                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                    >
+                    <Link href="/events" className={buttonVariants({ variant: "outline", size: "sm" })}>
                       Voltar ao início
                     </Link>
-                  ) : (
-                    <Link href="/rules" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                      Criar regra
-                    </Link>
-                  )
+                  ) : undefined
                 }
               />
             ) : (
@@ -129,58 +115,46 @@ export default async function EventsPage({
                       <TableHead>mídia</TableHead>
                     </TableRow>
                   </TableHeader>
-                <TableBody>
-                  {events.map((event) => (
-                    <TableRow key={event.seq}>
-                      <TableCell className="font-mono text-xs tabular-nums">{event.seq}</TableCell>
-                      <TableCell className="text-xs" title={formatDateTime(event.timestamp)}>
-                        {formatDateTime(event.timestamp)}
-                      </TableCell>
-                      <TableCell className="max-w-40">
-                        <p className="truncate text-xs">{event.chat_name || event.chat_jid}</p>
-                        <p className="truncate font-mono text-[10px] text-muted-foreground">{event.chat_jid}</p>
-                      </TableCell>
-                      <TableCell className="max-w-36">
-                        <p className="truncate text-xs">{event.sender_name || event.sender_jid || "—"}</p>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          {event.is_group ? <Badge variant="secondary">grupo</Badge> : null}
-                          {event.is_from_me ? <Badge variant="outline">from-me</Badge> : null}
-                          {event.mentioned_me ? <Badge variant="outline">menção</Badge> : null}
-                          {!event.is_group && !event.is_from_me && !event.mentioned_me ? (
-                            <span className="text-xs text-muted-foreground">—</span>
-                          ) : null}
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-72 whitespace-normal">
-                        <p className="line-clamp-2 text-xs" title={event.content}>
-                          {truncate(event.content || "(sem conteúdo)", 160)}
-                        </p>
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{event.media_type ?? "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
+                  <TableBody>
+                    {events.map((event) => (
+                      <TableRow key={event.seq}>
+                        <TableCell className="font-mono text-xs tabular-nums">{event.seq}</TableCell>
+                        <TableCell className="text-xs" title={formatDateTime(event.timestamp)}>
+                          {formatDateTime(event.timestamp)}
+                        </TableCell>
+                        <TableCell className="max-w-40">
+                          <p className="truncate text-xs">{event.chat_name || event.chat_jid}</p>
+                          <p className="truncate font-mono text-[10px] text-muted-foreground">{event.chat_jid}</p>
+                        </TableCell>
+                        <TableCell className="max-w-36">
+                          <p className="truncate text-xs">{event.sender_name || event.sender_jid || "—"}</p>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {event.is_group ? <Badge variant="secondary">grupo</Badge> : null}
+                            {event.is_from_me ? <Badge variant="outline">from-me</Badge> : null}
+                            {event.mentioned_me ? <Badge variant="outline">menção</Badge> : null}
+                            {event.is_reply_to_me ? <Badge variant="outline">resposta</Badge> : null}
+                            {!event.is_group && !event.is_from_me && !event.mentioned_me && !event.is_reply_to_me ? (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                        <TableCell className="max-w-72 whitespace-normal">
+                          <p className="line-clamp-2 text-xs" title={event.content}>
+                            {truncate(event.content || "(sem conteúdo)", 160)}
+                          </p>
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{event.media_type ?? "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
                 </Table>
               </div>
             )}
           </CardContent>
         </Card>
       ) : null}
-
-      <Card className="mt-4">
-        <CardHeader>
-          <CardTitle className="text-sm">Ack de consumer</CardTitle>
-          <CardDescription>
-            Persiste o cursor do consumer no bridge. Use o mesmo <span className="font-mono">rule_id</span> e{" "}
-            <span className="font-mono">seq</span> que você já processou.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <AckForm tenantId={tenantId} rules={rules} defaultRule={rule ?? ""} defaultSeq={nextAfter} />
-        </CardContent>
-      </Card>
     </>
   );
 }

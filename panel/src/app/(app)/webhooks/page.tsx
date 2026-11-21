@@ -1,5 +1,4 @@
 import { connection } from "next/server";
-import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -7,7 +6,6 @@ import { PageHeader } from "@/components/page-header";
 import { NewWebhookDialog } from "@/components/webhooks/new-webhook-dialog";
 import { WebhookActions } from "@/components/webhooks/webhook-actions";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Table,
@@ -17,7 +15,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { loadRules, loadWebhooks } from "@/lib/api";
+import { loadWebhooks } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import { requireTenantContext } from "@/lib/session";
 
@@ -29,39 +27,23 @@ export default async function WebhooksPage() {
   const context = await requireTenantContext();
   const { tenantId } = context;
   const canManage = context.isAdmin || context.organizationRole === "owner";
-  const [webhooksResult, rulesResult] = await Promise.all([loadWebhooks(), loadRules()]);
-  const rules = rulesResult.ok ? rulesResult.data.map((rule) => ({ id: rule.id, name: rule.name })) : [];
-  const ruleNames = new Map(rules.map((rule) => [rule.id, rule.name]));
+  const webhooksResult = await loadWebhooks();
 
   return (
     <>
       <PageHeader
         title="Webhooks"
-        description="Cada webhook escuta uma regra e recebe POSTs com assinatura HMAC."
-        actions={canManage ? <NewWebhookDialog tenantId={tenantId} rules={rules} /> : undefined}
+        description="Cada webhook recebe POSTs assinados com HMAC dos eventos que passam nos filtros escolhidos."
+        actions={canManage ? <NewWebhookDialog tenantId={tenantId} /> : undefined}
       />
-
-      {!rulesResult.ok ? (
-        <p className="mb-3 text-xs text-muted-foreground">
-          Regras indisponíveis: {rulesResult.error}
-        </p>
-      ) : null}
 
       {!webhooksResult.ok ? <ErrorState message={webhooksResult.error} code={webhooksResult.code} /> : null}
 
       {webhooksResult.ok && webhooksResult.data.length === 0 ? (
         <EmptyState
           title="Nenhum webhook"
-          description="Configure um endpoint para receber os eventos das regras por HTTP."
-          action={
-            rules.length > 0 && canManage ? (
-              <NewWebhookDialog tenantId={tenantId} rules={rules} />
-            ) : (
-              <Link href="/rules" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Criar uma regra primeiro
-              </Link>
-            )
-          }
+          description="Configure um endpoint para receber os eventos por HTTP."
+          action={canManage ? <NewWebhookDialog tenantId={tenantId} /> : undefined}
         />
       ) : null}
 
@@ -76,7 +58,7 @@ export default async function WebhooksPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>URL</TableHead>
-                  <TableHead>regra</TableHead>
+                  <TableHead>autenticação</TableHead>
                   <TableHead>enabled</TableHead>
                   <TableHead>criado em</TableHead>
                   <TableHead className="text-right">ações</TableHead>
@@ -90,10 +72,18 @@ export default async function WebhooksPage() {
                         {webhook.url}
                       </span>
                     </TableCell>
-                    <TableCell className="max-w-40">
-                      <span className="block truncate text-xs">
-                        {ruleNames.get(webhook.rule_id) ?? webhook.rule_id}
-                      </span>
+                    <TableCell className="max-w-44">
+                      {webhook.header_names && webhook.header_names.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {webhook.header_names.map((name) => (
+                            <Badge key={name} variant="outline">
+                              {name}
+                            </Badge>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">HMAC</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={webhook.enabled ? "default" : "outline"}>

@@ -5,13 +5,11 @@ import { useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 
-import type { RuleOption } from "@/components/events/event-filters";
 import { SecretDialog } from "@/components/secret-dialog";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import type { Schema } from "@/lib/api";
 import { bridgePost } from "@/lib/client-api";
@@ -43,14 +41,12 @@ function parseHeaderLines(value: string): { headers: Record<string, string>; err
 const MEDIA_TYPES = ["image", "video", "audio", "document"] as const;
 type MediaType = (typeof MEDIA_TYPES)[number];
 
-export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules: RuleOption[] }) {
+export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [url, setUrl] = useState("");
   const [headerText, setHeaderText] = useState("");
-  const [mode, setMode] = useState<"quick" | "existing">("quick");
-  const [rule, setRule] = useState(rules[0]?.id ?? "");
   const [chatJids, setChatJids] = useState("");
   const [senderJids, setSenderJids] = useState("");
   const [textContains, setTextContains] = useState("");
@@ -62,11 +58,6 @@ export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules:
   const [mediaTypes, setMediaTypes] = useState<MediaType[]>([]);
   const [secret, setSecret] = useState<string | null>(null);
   const [secretOpen, setSecretOpen] = useState(false);
-
-  const ruleItems: Record<string, string> = {};
-  for (const option of rules) {
-    ruleItems[option.id] = option.name;
-  }
 
   function toggleMediaType(type: MediaType) {
     setMediaTypes((current) =>
@@ -117,10 +108,6 @@ export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules:
       toast.error("Informe a URL do webhook.");
       return;
     }
-    if (mode === "existing" && !rule) {
-      toast.error("Selecione uma regra.");
-      return;
-    }
     const parsedHeaders = parseHeaderLines(headerText);
     if (parsedHeaders.error) {
       toast.error(parsedHeaders.error);
@@ -129,31 +116,27 @@ export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules:
     const customHeaders = parsedHeaders.headers;
 
     setSaving(true);
-    let ruleId = rule;
-    if (mode === "quick") {
-      let host = "webhook";
-      try {
-        host = new URL(url).host;
-      } catch {
-        // URL validation is handled by the input and the bridge.
-      }
-      const created = await bridgePost<{ rule: Schema["EventRule"] }>(`/tenants/${tenantId}/rules`, {
-        name: `Webhook ${host}`,
-        match: buildQuickMatch(),
-        enabled: true,
-      });
-      if (!created.ok) {
-        setSaving(false);
-        toast.error(created.error);
-        return;
-      }
-      const createdRuleID = created.data?.rule.id;
-      if (!createdRuleID) {
-        setSaving(false);
-        toast.error("Falha ao criar a regra do webhook.");
-        return;
-      }
-      ruleId = createdRuleID;
+    let host = "webhook";
+    try {
+      host = new URL(url).host;
+    } catch {
+      // URL validation is handled by the input and the bridge.
+    }
+    const created = await bridgePost<{ rule: Schema["EventRule"] }>(`/tenants/${tenantId}/rules`, {
+      name: `Webhook ${host}`,
+      match: buildQuickMatch(),
+      enabled: true,
+    });
+    if (!created.ok) {
+      setSaving(false);
+      toast.error(created.error);
+      return;
+    }
+    const ruleId = created.data?.rule.id;
+    if (!ruleId) {
+      setSaving(false);
+      toast.error("Falha ao salvar os filtros do webhook.");
+      return;
     }
 
     const result = await bridgePost<{ webhook: Schema["WebhookView"]; secret: string }>(
@@ -224,40 +207,7 @@ export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules:
               </p>
             </div>
 
-            {rules.length > 0 && (
-              <div className="space-y-1.5">
-                <Label htmlFor="webhook-mode">Filtro</Label>
-                <select
-                  id="webhook-mode"
-                  value={mode}
-                  onChange={(event) => setMode(event.target.value as "quick" | "existing")}
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-                >
-                  <option value="quick">Criar filtro aqui</option>
-                  <option value="existing">Usar regra existente</option>
-                </select>
-              </div>
-            )}
-
-            {mode === "existing" && rules.length > 0 ? (
-              <div className="space-y-1.5">
-                <Label>Regra</Label>
-                <Select items={ruleItems} value={rule} onValueChange={(value) => setRule(value ?? "")}>
-                  <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Selecione uma regra" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {rules.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2 rounded-md border p-3">
+            <div className="space-y-2 rounded-md border p-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <Label htmlFor="webhook-conversation" className="text-xs">
                       Conversa
@@ -383,8 +333,6 @@ export function NewWebhookDialog({ tenantId, rules }: { tenantId: string; rules:
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">Sem nenhum filtro, o webhook recebe todos os eventos.</p>
-              </>
-            )}
 
             <DialogFooter showCloseButton>
               <Button type="submit" size="sm" disabled={saving}>

@@ -114,15 +114,14 @@ export type EventPage = { events: Schema["Event"][]; nextAfter: number };
 
 export async function loadEvents(options: {
   after?: number;
-  rule?: string;
   limit?: number;
 }): Promise<ApiResult<EventPage>> {
-  const { after, rule, limit = 100 } = options;
+  const { after, limit = 100 } = options;
   return withTenant(async (client, tenant) => {
     const { data, error } = await client.GET("/tenants/{tenant}/events", {
       params: {
         path: { tenant },
-        query: { after: after || undefined, rule: rule || undefined, limit },
+        query: { after: after || undefined, limit },
       },
       cache: "no-store",
     });
@@ -136,18 +135,6 @@ export async function loadEvents(options: {
   });
 }
 
-export async function loadRules(): Promise<ApiResult<Schema["EventRule"][]>> {
-  return withTenant(async (client, tenant) => {
-    const { data, error } = await client.GET("/tenants/{tenant}/rules", {
-      params: { path: { tenant } },
-      cache: "no-store",
-    });
-    if (error) {
-      return failure(error);
-    }
-    return { ok: true, data: data?.data?.rules ?? [] };
-  });
-}
 
 export async function loadWebhooks(): Promise<ApiResult<Schema["WebhookView"][]>> {
   return withTenant(async (client, tenant) => {
