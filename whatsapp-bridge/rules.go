@@ -162,24 +162,28 @@ func (store *MessageStore) ackConsumer(consumerID, ruleID string, seq int64) (in
 }
 
 const eventColumns = `seq, message_id, chat_jid, chat_name, sender_jid, sender_name,
-	is_group, is_from_me, mentioned_me, content, media_type, timestamp, created_at`
+	is_group, chat_type, is_from_me, mentioned_me, is_reply_to_me, message_type, content, media_type, timestamp, created_at`
 
 func scanEvent(row rowScanner) (Event, error) {
 	var (
 		ev                              Event
 		chatName, senderJID, senderName sql.NullString
+		chatType, messageType           sql.NullString
 		content, mediaType              sql.NullString
 		timestamp, createdAt            sql.NullTime
 	)
 	if err := row.Scan(
 		&ev.Seq, &ev.MessageID, &ev.ChatJID, &chatName, &senderJID, &senderName,
-		&ev.IsGroup, &ev.IsFromMe, &ev.MentionedMe, &content, &mediaType, &timestamp, &createdAt,
+		&ev.IsGroup, &chatType, &ev.IsFromMe, &ev.MentionedMe, &ev.IsReplyToMe, &messageType,
+		&content, &mediaType, &timestamp, &createdAt,
 	); err != nil {
 		return Event{}, err
 	}
 	ev.ChatName = chatName.String
 	ev.SenderJID = senderJID.String
 	ev.SenderName = senderName.String
+	ev.ChatType = chatType.String
+	ev.MessageType = messageType.String
 	ev.Content = content.String
 	ev.MediaType = mediaType.String
 	if timestamp.Valid {

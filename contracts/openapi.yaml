@@ -745,7 +745,7 @@ components:
         path: { type: string }
     Event:
       type: object
-      required: [seq, message_id, chat_jid, is_group, is_from_me, mentioned_me, is_reply_to_me, content, timestamp, created_at]
+      required: [seq, message_id, chat_jid, is_group, chat_type, is_from_me, mentioned_me, is_reply_to_me, message_type, content, timestamp, created_at]
       properties:
         seq: { type: integer, format: int64 }
         message_id: { type: string }
@@ -754,9 +754,15 @@ components:
         sender_jid: { type: string }
         sender_name: { type: string }
         is_group: { type: boolean }
+        chat_type:
+          type: string
+          enum: [direct, group, status, broadcast, newsletter, other]
         is_from_me: { type: boolean }
         mentioned_me: { type: boolean }
         is_reply_to_me: { type: boolean }
+        message_type:
+          type: string
+          enum: [text, image, video, audio, document, sticker, location, contact, poll, poll_update, reaction, protocol, interactive, album, event, other]
         content: { type: string }
         media_type: { type: string }
         timestamp: { type: string, format: date-time }
@@ -772,6 +778,16 @@ components:
         is_from_me: { type: boolean }
         mentioned_me: { type: boolean }
         is_reply_to_me: { type: boolean }
+        chat_types:
+          type: array
+          items:
+            type: string
+            enum: [direct, group, status, broadcast, newsletter, other]
+        message_types:
+          type: array
+          items:
+            type: string
+            enum: [text, image, video, audio, document, sticker, location, contact, poll, poll_update, reaction, protocol, interactive, album, event, other]
         has_media: { type: boolean }
         media_types:
           type: array

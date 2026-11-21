@@ -157,3 +157,127 @@ func TestEventUniquePerMessage(t *testing.T) {
 		t.Fatal("duplicate (message_id, chat_jid) must be rejected")
 	}
 }
+
+func TestRuleMatchChatAndMessageTypes(t *testing.T) {
+	ev := baseEvent()
+	ev.ChatType = "group"
+	ev.MessageType = "image"
+	if !(RuleMatch{ChatTypes: []string{"group"}}).Matches(ev) {
+		t.Fatal("chat_types=group should match")
+	}
+	if (RuleMatch{ChatTypes: []string{"direct"}}).Matches(ev) {
+		t.Fatal("chat_types=direct must not match a group")
+	}
+	if !(RuleMatch{MessageTypes: []string{"image"}}).Matches(ev) {
+		t.Fatal("message_types=image should match")
+	}
+	if (RuleMatch{MessageTypes: []string{"text"}}).Matches(ev) {
+		t.Fatal("message_types=text must not match an image")
+	}
+	if err := (RuleMatch{ChatTypes: []string{"channel"}}).Validate(); err == nil {
+		t.Fatal("unknown chat type must be rejected")
+	}
+	if err := (RuleMatch{MessageTypes: []string{"unknown"}}).Validate(); err == nil {
+		t.Fatal("unknown message type must be rejected")
+	}
+}
+
+func TestWebhookAcceptsSafeDefaults(t *testing.T) {
+	direct := baseEvent()
+	direct.ChatJID = "5511999999999@s.whatsapp.net"
+	direct.IsGroup = false
+	direct.ChatType = "direct"
+	direct.MessageType = "text"
+
+	group := baseEvent()
+	group.ChatType = "group"
+	group.MessageType = "text"
+
+	status := baseEvent()
+	status.ChatJID = "status@broadcast"
+	status.IsGroup = false
+	status.ChatType = "status"
+	status.MessageType = "image"
+
+	if !webhookAccepts(RuleMatch{}, direct) {
+		t.Fatal("an empty rule must accept a direct inbound message")
+	}
+	if webhookAccepts(RuleMatch{}, group) {
+		t.Fatal("an empty rule must not accept groups")
+	}
+	if webhookAccepts(RuleMatch{}, status) {
+		t.Fatal("an empty rule must not accept status")
+	}
+	if !webhookAccepts(RuleMatch{ChatTypes: []string{"group"}}, group) {
+		t.Fatal("explicit chat_types=group must opt in")
+	}
+	if !webhookAccepts(RuleMatch{ChatTypes: []string{"status"}}, status) {
+		t.Fatal("explicit chat_types=status must opt in")
+	}
+	if !webhookAccepts(RuleMatch{ChatJIDs: []string{group.ChatJID}}, group) {
+		t.Fatal("an explicit group chat_jid must opt in")
+	}
+
+	outgoing := direct
+	outgoing.IsFromMe = true
+	if webhookAccepts(RuleMatch{}, outgoing) {
+		t.Fatal("outgoing messages must be skipped by default")
+	}
+	if !webhookAccepts(RuleMatch{IsFromMe: boolPtr(true)}, outgoing) {
+		t.Fatal("is_from_me=true must opt into outgoing messages")
+	}
+}
+
+func TestChatTypeFromJID(t *testing.T) {
+	cases := map[string]string{
+		"5511999999999@s.whatsapp.net":  "direct",
+		"120363000000000000@g.us":       "group",
+		"120363000000000000@newsletter": "newsletter",
+		"status@broadcast":              "status",
+		"120363000000000000@broadcast":  "broadcast",
+	}
+	for jid, want := range cases {
+		if got := chatTypeFromJID(jid); got != want {
+			t.Fatalf("chatTypeFromJID(%q) = %q, want %q", jid, got, want)
+		}
+	}
+}
+
+func TestEventSchemaBackfillsSegmentation(t *testing.T) {
+	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "legacy.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE events (
+		seq INTEGER PRIMARY KEY AUTOINCREMENT,
+		message_id TEXT NOT NULL,
+		chat_jid TEXT NOT NULL,
+		content TEXT,
+		media_type TEXT
+	)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO events (message_id, chat_jid, content, media_type) VALUES ('m1', '120363000000000000@g.us', 'oi', ''), ('m2', '5511999999999@s.whatsapp.net', '', 'image')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateEventSchema(db); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.Query("SELECT chat_type, message_type FROM events ORDER BY seq")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var got []string
+	for rows.Next() {
+		var chatType, messageType string
+		if err := rows.Scan(&chatType, &messageType); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, chatType+":"+messageType)
+	}
+	if len(got) != 2 || got[0] != "group:text" || got[1] != "direct:image" {
+		t.Fatalf("unexpected backfill: %v", got)
+	}
+}

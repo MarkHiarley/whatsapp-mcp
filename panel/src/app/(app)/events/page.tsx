@@ -112,7 +112,7 @@ export default async function EventsPage({
                       <TableHead>remetente</TableHead>
                       <TableHead>flags</TableHead>
                       <TableHead>conteúdo</TableHead>
-                      <TableHead>mídia</TableHead>
+                      <TableHead>tipo</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -131,11 +131,11 @@ export default async function EventsPage({
                         </TableCell>
                         <TableCell>
                           <div className="flex flex-wrap gap-1">
-                            {event.is_group ? <Badge variant="secondary">grupo</Badge> : null}
+                            <Badge variant="secondary">{event.chat_type}</Badge>
                             {event.is_from_me ? <Badge variant="outline">from-me</Badge> : null}
                             {event.mentioned_me ? <Badge variant="outline">menção</Badge> : null}
                             {event.is_reply_to_me ? <Badge variant="outline">resposta</Badge> : null}
-                            {!event.is_group && !event.is_from_me && !event.mentioned_me && !event.is_reply_to_me ? (
+                            {!event.is_from_me && !event.mentioned_me && !event.is_reply_to_me ? (
                               <span className="text-xs text-muted-foreground">—</span>
                             ) : null}
                           </div>
@@ -145,7 +145,9 @@ export default async function EventsPage({
                             {truncate(event.content || "(sem conteúdo)", 160)}
                           </p>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{event.media_type ?? "—"}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {event.message_type ?? event.media_type ?? "—"}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

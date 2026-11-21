@@ -444,6 +444,30 @@ func deliverEvent(ctx context.Context, wh EventWebhook, tenantID string, seq int
 	return &status, nil
 }
 
+// webhookAccepts applies the safe delivery policy: notifications default to
+// direct, inbound messages. Groups, status and newsletters require an explicit
+// chat_types opt-in (or an explicit chat_jid), and outgoing messages require
+// is_from_me=true. Ingestion and the /events API remain unfiltered.
+func webhookAccepts(match RuleMatch, ev Event) bool {
+	if !match.Matches(ev) {
+		return false
+	}
+	if match.IsFromMe == nil && ev.IsFromMe {
+		return false
+	}
+	if len(match.ChatTypes) > 0 {
+		return true
+	}
+	chatType := ev.ChatType
+	if chatType == "" {
+		chatType = chatTypeFromJID(ev.ChatJID)
+	}
+	if chatType == "direct" {
+		return true
+	}
+	return matchesAnyJID(ev.ChatJID, match.ChatJIDs)
+}
+
 // processWebhookOnce advances one webhook by at most one event. It returns
 // true when the cursor or the delivery log changed.
 func (m *TenantManager) processWebhookOnce(ctx context.Context, rt *tenantRuntime, webhookID string) (bool, error) {
@@ -481,7 +505,7 @@ func (m *TenantManager) processWebhookOnce(ctx context.Context, rt *tenantRuntim
 		return false, err
 	}
 	if !exists {
-		if !rule.Match.Matches(ev) {
+		if !webhookAccepts(rule.Match, ev) {
 			if _, err := rt.store.ackConsumer(consumerID, wh.RuleID, ev.Seq); err != nil {
 				return false, err
 			}

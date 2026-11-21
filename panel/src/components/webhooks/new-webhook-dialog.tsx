@@ -38,8 +38,26 @@ function parseHeaderLines(value: string): { headers: Record<string, string>; err
   return { headers };
 }
 
-const MEDIA_TYPES = ["image", "video", "audio", "document"] as const;
-type MediaType = (typeof MEDIA_TYPES)[number];
+type ChatType = NonNullable<Schema["RuleMatch"]["chat_types"]>[number];
+type MessageType = NonNullable<Schema["RuleMatch"]["message_types"]>[number];
+
+const CHAT_TYPES: { value: ChatType; label: string }[] = [
+  { value: "direct", label: "privados" },
+  { value: "group", label: "grupos" },
+  { value: "status", label: "status" },
+  { value: "newsletter", label: "canais" },
+  { value: "broadcast", label: "broadcast" },
+  { value: "other", label: "outros" },
+];
+
+const MESSAGE_TYPES: MessageType[] = [
+  "text", "image", "video", "audio", "document", "sticker", "location", "contact",
+  "poll", "poll_update", "reaction", "protocol", "interactive", "album", "event", "other",
+];
+
+function toggleValue<T extends string>(current: T[], value: T): T[] {
+  return current.includes(value) ? current.filter((item) => item !== value) : [...current, value];
+}
 
 export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
   const router = useRouter();
@@ -50,20 +68,13 @@ export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
   const [chatJids, setChatJids] = useState("");
   const [senderJids, setSenderJids] = useState("");
   const [textContains, setTextContains] = useState("");
-  const [conversation, setConversation] = useState<"any" | "group" | "direct">("any");
+  const [chatTypes, setChatTypes] = useState<ChatType[]>(["direct"]);
+  const [messageTypes, setMessageTypes] = useState<MessageType[]>(["text", "image", "video", "audio", "document"]);
   const [inbound, setInbound] = useState(true);
   const [mention, setMention] = useState(false);
   const [reply, setReply] = useState(false);
-  const [media, setMedia] = useState<"any" | "with" | "without">("any");
-  const [mediaTypes, setMediaTypes] = useState<MediaType[]>([]);
   const [secret, setSecret] = useState<string | null>(null);
   const [secretOpen, setSecretOpen] = useState(false);
-
-  function toggleMediaType(type: MediaType) {
-    setMediaTypes((current) =>
-      current.includes(type) ? current.filter((value) => value !== type) : [...current, type],
-    );
-  }
 
   function buildQuickMatch(): Schema["RuleMatch"] {
     const match: Schema["RuleMatch"] = {};
@@ -79,10 +90,11 @@ export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
     if (contains.length > 0) {
       match.text_contains = contains;
     }
-    if (conversation === "group") {
-      match.is_group = true;
-    } else if (conversation === "direct") {
-      match.is_group = false;
+    if (chatTypes.length > 0) {
+      match.chat_types = chatTypes;
+    }
+    if (messageTypes.length > 0) {
+      match.message_types = messageTypes;
     }
     if (inbound) {
       match.is_from_me = false;
@@ -92,12 +104,6 @@ export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
     }
     if (reply) {
       match.is_reply_to_me = true;
-    }
-    if (media !== "any") {
-      match.has_media = media === "with";
-    }
-    if (media !== "without" && mediaTypes.length > 0) {
-      match.media_types = mediaTypes;
     }
     return match;
   }
@@ -208,87 +214,71 @@ export function NewWebhookDialog({ tenantId }: { tenantId: string }) {
             </div>
 
             <div className="space-y-2 rounded-md border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label htmlFor="webhook-conversation" className="text-xs">
-                      Conversa
-                    </Label>
-                    <select
-                      id="webhook-conversation"
-                      value={conversation}
-                      onChange={(event) => setConversation(event.target.value as "any" | "group" | "direct")}
-                      className="h-8 rounded-md border bg-background px-2 text-xs"
-                    >
-                      <option value="any">qualquer</option>
-                      <option value="group">só grupos</option>
-                      <option value="direct">só diretas</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <label className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={inbound}
-                        onChange={(event) => setInbound(event.target.checked)}
-                        className="size-3.5 accent-primary"
-                      />
-                      só recebidas
-                    </label>
-                    <label className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={mention}
-                        onChange={(event) => setMention(event.target.checked)}
-                        className="size-3.5 accent-primary"
-                      />
-                      só quando me marcam
-                    </label>
-                    <label className="flex items-center gap-2 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={reply}
-                        onChange={(event) => setReply(event.target.checked)}
-                        className="size-3.5 accent-primary"
-                      />
-                      só respostas à minha mensagem
-                    </label>
-                  </div>
-                </div>
+              <Label className="text-xs">Tipos de conversa</Label>
+              <div className="flex flex-wrap gap-3">
+                {CHAT_TYPES.map((option) => (
+                  <label key={option.value} className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={chatTypes.includes(option.value)}
+                      onChange={() => setChatTypes((current) => toggleValue(current, option.value))}
+                      className="size-3.5 accent-primary"
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Privados por padrão. Libere grupos, status ou canais apenas quando necessário.
+              </p>
+            </div>
 
-                <div className="space-y-2 rounded-md border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <Label htmlFor="webhook-media" className="text-xs">
-                      Mídia
-                    </Label>
-                    <select
-                      id="webhook-media"
-                      value={media}
-                      onChange={(event) => setMedia(event.target.value as "any" | "with" | "without")}
-                      className="h-8 rounded-md border bg-background px-2 text-xs"
-                    >
-                      <option value="any">qualquer</option>
-                      <option value="with">com mídia</option>
-                      <option value="without">sem mídia</option>
-                    </select>
-                  </div>
-                  {media !== "without" && (
-                    <div className="flex flex-wrap gap-3">
-                      {MEDIA_TYPES.map((type) => (
-                        <label key={type} className="flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            checked={mediaTypes.includes(type)}
-                            onChange={() => toggleMediaType(type)}
-                            className="size-3.5 accent-primary"
-                          />
-                          {type}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                  {media === "without" && (
-                    <p className="text-xs text-muted-foreground">Sem mídia ignora os tipos selecionados.</p>
-                  )}
-                </div>
+            <div className="space-y-2 rounded-md border p-3">
+              <Label className="text-xs">Tipos de mensagem</Label>
+              <div className="flex flex-wrap gap-2.5">
+                {MESSAGE_TYPES.map((type) => (
+                  <label key={type} className="flex items-center gap-1.5 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={messageTypes.includes(type)}
+                      onChange={() => setMessageTypes((current) => toggleValue(current, type))}
+                      className="size-3.5 accent-primary"
+                    />
+                    {type}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 rounded-md border p-3">
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={inbound}
+                  onChange={(event) => setInbound(event.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                só recebidas
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={mention}
+                  onChange={(event) => setMention(event.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                só quando me marcam
+              </label>
+              <label className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={reply}
+                  onChange={(event) => setReply(event.target.checked)}
+                  className="size-3.5 accent-primary"
+                />
+                só respostas à minha mensagem
+              </label>
+            </div>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1.5">
