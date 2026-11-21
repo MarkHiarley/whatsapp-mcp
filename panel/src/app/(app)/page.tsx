@@ -62,7 +62,7 @@ export default async function OverviewPage() {
         }
       />
 
-      <section aria-label="Status da sessão" className="rounded-2xl border bg-card p-5 sm:p-6">
+      <section aria-label="Status da sessão" className="rounded-2xl border bg-card p-5 shadow-xs sm:p-6">
         <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:text-left">
           <StatusOrb status={status} size={112} className="shrink-0" />
           <div className="min-w-0 flex-1">
@@ -109,7 +109,7 @@ export default async function OverviewPage() {
         </div>
       ) : null}
 
-      <dl aria-label="Volume do tenant" className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-4">
+      <dl aria-label="Volume do tenant" className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border shadow-xs sm:grid-cols-4">
         {metrics.map((metric) => (
           <div key={metric.label} className="bg-card px-5 py-4">
             <dt className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
@@ -122,7 +122,7 @@ export default async function OverviewPage() {
         ))}
       </dl>
 
-      <section aria-labelledby="daily-volume" className="mt-3 rounded-2xl border bg-card p-5">
+      <section aria-labelledby="daily-volume" className="mt-3 rounded-2xl border bg-card p-5 shadow-xs">
         <div className="mb-4 flex items-baseline justify-between gap-3">
           <h2 id="daily-volume" className="font-heading text-base font-semibold">
             Mensagens por dia
@@ -133,7 +133,7 @@ export default async function OverviewPage() {
       </section>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section aria-labelledby="recent-activity" className="rounded-2xl border bg-card p-5">
+        <section aria-labelledby="recent-activity" className="rounded-2xl border bg-card p-5 shadow-xs">
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h2 id="recent-activity" className="font-heading text-base font-semibold">
               Atividade recente
@@ -227,7 +227,7 @@ export default async function OverviewPage() {
           )}
         </section>
 
-        <section aria-labelledby="session-details" className="rounded-2xl border bg-card p-5">
+        <section aria-labelledby="session-details" className="rounded-2xl border bg-card p-5 shadow-xs">
           <h2 id="session-details" className="font-heading text-base font-semibold">
             Sessão
           </h2>

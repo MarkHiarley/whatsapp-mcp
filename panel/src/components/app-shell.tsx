@@ -97,7 +97,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       />
       <span className="flex-1">{item.label}</span>
       {item.admin ? (
-        <span className="rounded border border-highlight/30 bg-highlight/15 px-1 py-0.5 text-[9px] font-semibold tracking-[0.12em] text-foreground uppercase">
+        <span className="rounded border border-highlight/40 bg-highlight/15 px-1 py-0.5 text-[9px] font-semibold tracking-[0.12em] text-sidebar-accent-foreground uppercase">
           admin
         </span>
       ) : null}
@@ -117,7 +117,7 @@ function TenantCard({
   return (
     <Link
       href="/tenants"
-      className="mx-3 mt-3 block rounded-xl border border-sidebar-border bg-background/60 p-3 transition-colors hover:bg-sidebar-accent/40"
+      className="mx-3 mt-3 block rounded-xl border border-sidebar-border bg-sidebar-accent/40 p-3 transition-colors hover:bg-sidebar-accent/70"
     >
       <div className="flex items-center gap-2.5">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
@@ -130,8 +130,8 @@ function TenantCard({
               className={cn(
                 "rounded px-1 py-0.5 text-[9px] tracking-[0.08em]",
                 role === "admin"
-                  ? "bg-highlight/20 text-foreground"
-                  : "bg-muted text-muted-foreground",
+                  ? "bg-highlight/20 text-sidebar-accent-foreground"
+                  : "bg-white/10 text-sidebar-foreground/70",
               )}
             >
               {role}
@@ -197,7 +197,7 @@ export function AppShell({
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
           {navGroups.map((group) => (
             <div key={group.label} className="mb-5 last:mb-0">
-              <p className="mb-1.5 px-2.5 text-[10px] font-semibold tracking-[0.16em] text-sidebar-foreground/40 uppercase">
+              <p className="mb-1.5 px-2.5 text-[10px] font-semibold tracking-[0.16em] text-sidebar-foreground/55 uppercase">
                 {group.label}
               </p>
               <div className="space-y-0.5">

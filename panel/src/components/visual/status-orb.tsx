@@ -23,10 +23,12 @@ export function StatusOrb({
   status,
   size = 88,
   className,
+  label,
 }: {
   status: TenantStatus;
   size?: number;
   className?: string;
+  label?: string;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [webglFailed, setWebglFailed] = useState(false);
@@ -170,7 +172,7 @@ export function StatusOrb({
         className={`relative grid place-items-center ${className ?? ""}`}
         style={{ width: size, height: size }}
         role="img"
-        aria-label={`Sessão ${status}`}
+        aria-label={label ?? `Sessão ${status}`}
       >
         <span
           className="absolute inset-2 rounded-full border"
@@ -187,7 +189,7 @@ export function StatusOrb({
       className={className}
       style={{ width: size, height: size }}
       role="img"
-      aria-label={`Sessão ${status}`}
+      aria-label={label ?? `Sessão ${status}`}
     />
   );
 }
