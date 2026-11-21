@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { connection } from "next/server";
-import { Activity, ArrowRight, CircleAlert, KeyRound, MessageCircle, MessagesSquare, Paperclip, QrCode } from "lucide-react";
+import { Activity, ArrowRight, CircleAlert, Clock, KeyRound, MessageCircle, MessagesSquare, Paperclip, QrCode } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
@@ -42,11 +42,15 @@ export default async function OverviewPage() {
   const needsPairing = status === "disconnected" || status === "logged_out";
   const recentChats = chatsResult.ok ? chatsResult.data : [];
 
+  const highlights = [
+    { label: "Mensagens", value: formatNumber(stats.messages), hint: "sincronizadas no bridge", icon: MessageCircle },
+    { label: "Eventos", value: formatNumber(stats.events), hint: "publicados para agentes", icon: Activity },
+  ];
+
   const metrics = [
     { label: "Chats", value: formatNumber(stats.chats), hint: "no histórico", icon: MessagesSquare },
-    { label: "Mensagens", value: formatNumber(stats.messages), hint: "sincronizadas", icon: MessageCircle },
-    { label: "Eventos", value: formatNumber(stats.events), hint: "para agentes", icon: Activity },
     { label: "Chaves", value: formatNumber(stats.keys), hint: "credenciais ativas", icon: KeyRound },
+    { label: "Última atividade", value: formatRelative(stats.last_message_time), hint: "no bridge", icon: Clock },
   ];
 
   return (
@@ -62,9 +66,9 @@ export default async function OverviewPage() {
         }
       />
 
-      <section aria-label="Status da sessão" className="rounded-2xl border bg-card p-5 sm:p-6">
+      <section aria-label="Status da sessão" className="rounded-lg border bg-card p-5 shadow-xs sm:p-6">
         <div className="flex flex-col items-center gap-5 text-center sm:flex-row sm:items-center sm:text-left">
-          <StatusOrb status={status} size={112} className="shrink-0" />
+          <StatusOrb status={status} size={96} className="shrink-0" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <StatusBadge status={status} />
@@ -97,10 +101,10 @@ export default async function OverviewPage() {
       {needsPairing ? (
         <div
           role="status"
-          className="mt-3 flex flex-col gap-2 rounded-lg border border-highlight/40 bg-highlight/10 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
+          className="mt-3 flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
         >
           <span className="flex items-center gap-2">
-            <CircleAlert className="size-4 text-highlight" aria-hidden />
+            <CircleAlert className="size-4 text-amber-600" aria-hidden />
             O número está {STATUS_LABELS[status]}.
           </span>
           <Link href="/settings" className="text-xs font-medium underline underline-offset-4 hover:text-foreground">
@@ -109,20 +113,33 @@ export default async function OverviewPage() {
         </div>
       ) : null}
 
-      <dl aria-label="Volume do tenant" className="mt-3 grid grid-cols-2 gap-px overflow-hidden rounded-2xl border bg-border sm:grid-cols-4">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        {highlights.map((highlight) => (
+          <section key={highlight.label} className="rounded-lg border bg-card p-5 shadow-xs">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+              <highlight.icon className="size-3.5" aria-hidden />
+              {highlight.label}
+            </p>
+            <p className="mt-3 text-4xl font-semibold tabular-nums">{highlight.value}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{highlight.hint}</p>
+          </section>
+        ))}
+      </div>
+
+      <dl aria-label="Volume do tenant" className="mt-3 grid grid-cols-1 gap-px overflow-hidden rounded-lg border bg-border shadow-xs sm:grid-cols-3">
         {metrics.map((metric) => (
           <div key={metric.label} className="bg-card px-5 py-4">
             <dt className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
               <metric.icon className="size-3.5" aria-hidden />
               {metric.label}
             </dt>
-            <dd className="mt-2 text-2xl font-semibold tabular-nums">{metric.value}</dd>
+            <dd className="mt-2 text-xl font-semibold tabular-nums">{metric.value}</dd>
             <p className="mt-1 text-[11px] text-muted-foreground">{metric.hint}</p>
           </div>
         ))}
       </dl>
 
-      <section aria-labelledby="daily-volume" className="mt-3 rounded-2xl border bg-card p-5">
+      <section aria-labelledby="daily-volume" className="mt-3 rounded-lg border bg-card p-5 shadow-xs">
         <div className="mb-4 flex items-baseline justify-between gap-3">
           <h2 id="daily-volume" className="font-heading text-base font-semibold">
             Mensagens por dia
@@ -133,7 +150,7 @@ export default async function OverviewPage() {
       </section>
 
       <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <section aria-labelledby="recent-activity" className="rounded-2xl border bg-card p-5">
+        <section aria-labelledby="recent-activity" className="rounded-lg border bg-card p-5 shadow-xs">
           <div className="mb-3 flex items-baseline justify-between gap-3">
             <h2 id="recent-activity" className="font-heading text-base font-semibold">
               Atividade recente
@@ -227,7 +244,7 @@ export default async function OverviewPage() {
           )}
         </section>
 
-        <section aria-labelledby="session-details" className="rounded-2xl border bg-card p-5">
+        <section aria-labelledby="session-details" className="rounded-lg border bg-card p-5 shadow-xs">
           <h2 id="session-details" className="font-heading text-base font-semibold">
             Sessão
           </h2>

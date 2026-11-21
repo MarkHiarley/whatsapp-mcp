@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("anonymous visit is redirected to login", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByRole("heading", { name: "Entrar no painel" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Entrar", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Continuar com Google" })).toBeVisible();
 });
 

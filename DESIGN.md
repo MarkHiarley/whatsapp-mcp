@@ -1,52 +1,62 @@
 # DESIGN.md — Painel WhatsApp
 
-> Direção inferida do brief; substituível pela identidade do cliente. Mundo: **sala de sinal**.
+Modo **Operate**: o usuário completa uma tarefa. Familiaridade, densidade e leitura rápida vencem expressão. A identidade vive em detalhes precisos, não em decoração.
 
-## Modo
+## Direção
 
-Operate. Superfície de trabalho densa, previsível, com um único momento dimensional: o **orb de sinal** que codifica o estado da sessão. Nada de 3D atrás de tabelas.
+Painel claro, com sidebar branca, um único acento verde e um lima de seleção. Referências de composição: densidade de tabela do Sales CRM e tom de operação do Forge (galeria Modulify). Nada de roxo, glass, gradiente ou 3D atrás de dados.
 
-## Paleta
+## Tokens (claro = default)
 
-- Base grafite quase neutra (dark-first), uma segunda camada para sidebar/toolbars.
-- Um único acento: verde WhatsApp (`--primary`), usado em ação primária, seleção e estado conectado.
-- Semântica: conectado verde, pareando âmbar, desconectado cinza, deslogado vermelho. Nunca usar o acento como decoração.
-- Texto secundário tintado da superfície, nunca cinza puro sobre cor.
+- `--background #F6F6F3` · `--card`/`--sidebar #FFFFFF`
+- `--foreground #171714` · `--muted-foreground #57574F`
+- `--border`/`--input #E6E6DF`
+- `--primary #167A3A` (`--primary-foreground #FFFFFF`) — ação primária e “conectado”
+- `--highlight #E4F07A` (`--highlight-foreground #171714`) — item ativo e seleção
+- `--banner #F5E38A` (`--banner-foreground #1A1908`) — só fora de produção
+- `--destructive #C0362C`; pareando âmbar; desconectado cinza
+- `--radius 1rem`: cards 16px, botões 12px, pílulas 999px; raio do filho ≤ raio do pai
+- Sombra hairline: `0 1px 2px rgb(23 23 20 / 0.04), 0 1px 1px rgb(23 23 20 / 0.03)`
+- Dark: `#0F0F0D`/cards `#171714`, mesmo verde, lima suavizado `#C9D96A`, nenhum resíduo roxo
 
 ## Tipografia
 
-- Uma família: Geist (já instalada). Sem display face em labels/botões/dados.
-- Escala fixa em rem, razão 1.125–1.2. Números tabulares em métricas.
-- Prosa 65–75ch; tabelas podem ser densas.
+- Geist Sans em toda a UI. Geist Mono só em JID, key id, cursor e host.
+- Sora no máximo no H1 do login.
+- Escala 12/13/14/16/20/24/32; `tabular-nums` em números e datas; `pt-BR`.
 
 ## Layout
 
-- Sidebar com grupos (Operação, Eventos, Configuração), tenant atual e pill de status.
-- Overview: faixa de status com o orb + JID + última atividade; linha compacta de métricas (definition list, não quatro cards iguais); tabela de atividade recente real; ações rápidas.
-- Tabelas densas, cabeçalho sticky, scroll horizontal controlado no mobile.
-- Breakpoint estrutural: sidebar colapsa; nada de tipografia fluida.
+- Sidebar branca (~256px), borda clara, marca própria, `TenantCard` no topo, ícones Lucide finos, grupos Operação/Automação/Acesso/Sessão, ativo em lima com texto escuro, rodapé com avatar + nome/email + sair.
+- Banner de ambiente só fora de produção; em produção o header começa no topo.
+- Header do conteúdo: título à esquerda; `StatusBadge`, refresh e `ThemeToggle` à direita. Sem sino falso.
+- Main em off-white, cards brancos, padding 16–24px, grid de 4px.
+- Overview: 1–2 cards grandes (Mensagens, Eventos), faixa de métricas (Chats, Chaves, última atividade) e gráfico de 14 dias com `messages_by_day`. Só dados reais de `TenantStats`.
 
 ## Movimento
 
-- 150–250ms em transições; ease-out exponencial.
-- O orb é o único movimento autoral: gira devagar e pulsa só quando `connected`; estático com `prefers-reduced-motion`; pausa com a aba oculta.
-- Sem sequência de entrada orquestrada, sem parallax, sem glass/gradiente decorativo.
+150–250ms, ease-out. `StatusOrb` é o único 3D e o único movimento autoral; com `prefers-reduced-motion` fica estático e pausa com a aba oculta.
 
-## Componentes
+## Componentes e estados
 
-- Estados default/hover/focus/active/disabled/loading/error em todo controle.
-- Skeletons no carregamento; empty states que ensinam a próxima ação.
-- Dialogs para criação de key/webhook/tenant (token mostrado uma vez); confirmação para revogar/remover.
-- Foco visível, seleção de texto, scrollbar e caret tematizados.
-- Ícones `lucide-react`, um peso; sem emoji como ícone.
+- Todo controle tem hover, focus-visible, active, disabled, loading e error.
+- Empty states com título, motivo e CTA; skeletons no carregamento.
+- Navegação com `<Link>`; `aria-current="page"`.
+- Alvos ≥24px (44px no mobile); inputs mobile ≥16px.
+- Status nunca só por cor: sempre com texto.
 
-## Recusas
+## Recusar
 
-- Gradient text, glass, sombra dura, kicker/eyebrow, números de seção decorativos.
-- Cards iguais de ícone+título+texto como estrutura; hero-metric (número grande + label + stats).
-- Monospace como fantasia; usar só para dados/medições.
+- Roxo, múltiplos acentos, verde neon em texto/botão, `#25D366` como texto.
+- Sidebar escura no tema claro, glass/blur, gradient text, sombra forte, borda pesada.
+- Métricas, percentuais, pílulas de período, sino, seletor ou “Modo Teste” inventados.
+- Fonte display em label/botão/tabela; emoji no lugar de ícone; 3D atrás de dados; mock.
+- Tabelas apertadas sem header sticky; empty em branco.
 
-## Referências para refactor futuro
+## Referências
 
-- https://modulify.ai/templates — analisar depois os padrões de templates/blocks (composição de seções, densidade, empty states e blocos de dados) para uma passada de refactor do painel.
-
+- https://modulify.ai/templates — padrões de composição (Sales CRM, Forge).
+- https://vercel.com/design/guidelines
+- https://www.nngroup.com/articles/empty-state-interface-design/
+- https://docs.stripe.com/stripe-apps/style
+- https://www.saasui.design/blog/how-to-use-saas-ui-patterns-building-design-system

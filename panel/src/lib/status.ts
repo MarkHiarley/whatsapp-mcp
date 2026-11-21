@@ -8,8 +8,8 @@ export const STATUS_LABELS: Record<TenantStatusValue, string> = {
 };
 
 export const STATUS_DOT_CLASSES: Record<TenantStatusValue, string> = {
-  connected: "bg-emerald-500",
-  pairing: "bg-highlight",
+  connected: "bg-primary",
+  pairing: "bg-amber-500",
   disconnected: "bg-zinc-400",
   logged_out: "bg-red-500",
 };

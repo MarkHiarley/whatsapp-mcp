@@ -6,15 +6,15 @@ import * as THREE from "three";
 type TenantStatus = "connected" | "pairing" | "disconnected" | "logged_out";
 
 const COLORS: Record<TenantStatus, string> = {
-  connected: "#25d366",
-  pairing: "#8a9225",
+  connected: "#167a3a",
+  pairing: "#b7791f",
   disconnected: "#8b95a5",
   logged_out: "#ef4444",
 };
 
 const THREE_COLORS: Record<TenantStatus, number> = {
-  connected: 0x25d366,
-  pairing: 0x8a9225,
+  connected: 0x167a3a,
+  pairing: 0xb7791f,
   disconnected: 0x8b95a5,
   logged_out: 0xef4444,
 };
@@ -23,10 +23,12 @@ export function StatusOrb({
   status,
   size = 88,
   className,
+  label,
 }: {
   status: TenantStatus;
   size?: number;
   className?: string;
+  label?: string;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [webglFailed, setWebglFailed] = useState(false);
@@ -71,10 +73,10 @@ export function StatusOrb({
 
       const shellGeometry = new THREE.IcosahedronGeometry(1.66, 0);
       const shellMaterial = new THREE.MeshBasicMaterial({
-        color: 0x6e66d8,
+        color: 0x167a3a,
         wireframe: true,
         transparent: true,
-        opacity: 0.32,
+        opacity: 0.3,
       });
       const shell = new THREE.Mesh(shellGeometry, shellMaterial);
       group.add(core, shell);
@@ -92,7 +94,7 @@ export function StatusOrb({
       const pointsGeometry = new THREE.BufferGeometry();
       pointsGeometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
       const pointsMaterial = new THREE.PointsMaterial({
-        color: 0x8f88f5,
+        color: 0x167a3a,
         size: 0.03,
         transparent: true,
         opacity: 0.45,
@@ -170,7 +172,7 @@ export function StatusOrb({
         className={`relative grid place-items-center ${className ?? ""}`}
         style={{ width: size, height: size }}
         role="img"
-        aria-label={`Sessão ${status}`}
+        aria-label={label ?? `Sessão ${status}`}
       >
         <span
           className="absolute inset-2 rounded-full border"
@@ -187,7 +189,7 @@ export function StatusOrb({
       className={className}
       style={{ width: size, height: size }}
       role="img"
-      aria-label={`Sessão ${status}`}
+      aria-label={label ?? `Sessão ${status}`}
     />
   );
 }

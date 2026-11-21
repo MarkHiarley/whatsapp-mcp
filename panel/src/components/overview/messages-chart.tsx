@@ -48,7 +48,7 @@ export function MessagesChart({ data }: { data: DailyPoint[] }) {
             }}
             formatter={(value) => [`${value} mensagens`, ""]}
           />
-          <Bar dataKey="count" fill="var(--primary)" radius={[4, 4, 0, 0]} maxBarSize={44} />
+          <Bar dataKey="count" fill="var(--chart-1)" radius={[4, 4, 0, 0]} maxBarSize={44} />
         </BarChart>
       </ResponsiveContainer>
     </div>
