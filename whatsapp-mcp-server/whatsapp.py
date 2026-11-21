@@ -14,13 +14,47 @@ def _localize_dt(dt):
 
 from dataclasses import dataclass
 from typing import Any, Optional, List, Tuple
+from urllib.parse import quote
 import os.path
+import re
 import requests
 import json
 import audio
 
-MESSAGES_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store', 'messages.db')
-WHATSAPP_API_BASE_URL = "http://localhost:8080/api/v1"
+DEFAULT_TENANT_ID = "default"
+DEFAULT_API_BASE_URL = "http://localhost:8080/api/v1"
+DEFAULT_STORE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'whatsapp-bridge', 'store')
+TENANT_ID_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{1,31}")
+CONSUMER_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}")
+REQUEST_TIMEOUT = 10  # segundos, em toda chamada HTTP ao bridge
+EVENTS_MAX_LIMIT = 500
+
+
+def validate_tenant_id(tenant_id: str) -> str:
+    """Aceita apenas ids seguros para virar parte de path (DB e URL)."""
+    if not isinstance(tenant_id, str) or not TENANT_ID_PATTERN.fullmatch(tenant_id):
+        raise ValueError(
+            f"WHATSAPP_TENANT_ID inválido: {tenant_id!r}. "
+            "Use 2 a 32 caracteres minúsculos, dígitos ou '-', começando por letra/dígito."
+        )
+    return tenant_id
+
+
+def messages_db_path(store_dir: str, tenant_id: str) -> str:
+    """Tenant 'default' usa o DB legado; os demais ficam em store/tenants/<id>/."""
+    if tenant_id == DEFAULT_TENANT_ID:
+        return os.path.join(store_dir, "messages.db")
+    return os.path.join(store_dir, "tenants", tenant_id, "messages.db")
+
+
+def tenant_api_url(base_url: str, tenant_id: str, suffix: str) -> str:
+    return f"{base_url.rstrip('/')}/tenants/{tenant_id}/{suffix.lstrip('/')}"
+
+
+WHATSAPP_TENANT_ID = validate_tenant_id(os.environ.get("WHATSAPP_TENANT_ID") or DEFAULT_TENANT_ID)
+WHATSAPP_STORE_DIR = os.path.abspath(os.environ.get("WHATSAPP_STORE_DIR") or DEFAULT_STORE_DIR)
+MESSAGES_DB_PATH = messages_db_path(WHATSAPP_STORE_DIR, WHATSAPP_TENANT_ID)
+WHATSAPP_API_BASE_URL = (os.environ.get("WHATSAPP_API_BASE_URL") or DEFAULT_API_BASE_URL).rstrip("/")
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "")
 
 
@@ -28,6 +62,11 @@ def _api_headers():
     if not WHATSAPP_API_TOKEN:
         raise RuntimeError("WHATSAPP_API_TOKEN is required")
     return {"Authorization": f"Bearer {WHATSAPP_API_TOKEN}"}
+
+
+def _tenant_api(suffix: str) -> str:
+    """URL tenantizada: {base}/tenants/{tenant}/{suffix}. Usa sempre o tenant do processo."""
+    return tenant_api_url(WHATSAPP_API_BASE_URL, WHATSAPP_TENANT_ID, suffix)
 
 
 def _bridge_response(response):
@@ -39,7 +78,12 @@ def _bridge_response(response):
 
 
 def _connect():
-    return sqlite3.connect(MESSAGES_DB_PATH)
+    # mode=rw: abre apenas DB existente (sem criar arquivo vazio em caminho errado).
+    # Leitura direta; escrita sempre pela API.
+    uri = f"file:{quote(os.path.abspath(MESSAGES_DB_PATH))}?mode=rw"
+    conn = sqlite3.connect(uri, uri=True)
+    conn.execute("PRAGMA busy_timeout=5000")
+    return conn
 
 
 def _contact_identity(conn, identifier):
@@ -290,9 +334,9 @@ def get_message_context(
 ) -> MessageContext:
     """Get context around a specific message."""
     try:
-        conn = sqlite3.connect(MESSAGES_DB_PATH)
+        conn = _connect()
         cursor = conn.cursor()
-        
+
         # Get the target message first
         cursor.execute("""
             SELECT messages.timestamp, messages.sender, chats.name, messages.content, messages.is_from_me, chats.jid, messages.id, messages.chat_jid, messages.media_type
@@ -575,13 +619,13 @@ def send_message(recipient: str, message: str) -> Tuple[bool, str]:
         if not recipient:
             return False, "Recipient must be provided"
         
-        url = f"{WHATSAPP_API_BASE_URL}/send"
+        url = _tenant_api("send")
         payload = {
             "recipient": recipient,
             "message": message,
         }
 
-        response = requests.post(url, json=payload, headers=_api_headers())
+        response = requests.post(url, json=payload, headers=_api_headers(), timeout=REQUEST_TIMEOUT)
 
         success, data = _bridge_response(response)
         return success, data.get("message", "Unknown response")
@@ -606,13 +650,13 @@ def send_file(recipient: str, media_path: str) -> Tuple[bool, str]:
         if not os.path.isfile(media_path):
             return False, f"Media file not found: {media_path}"
         
-        url = f"{WHATSAPP_API_BASE_URL}/send"
+        url = _tenant_api("send")
         payload = {
             "recipient": recipient,
             "media_path": media_path
         }
 
-        response = requests.post(url, json=payload, headers=_api_headers())
+        response = requests.post(url, json=payload, headers=_api_headers(), timeout=REQUEST_TIMEOUT)
 
         success, data = _bridge_response(response)
         return success, data.get("message", "Unknown response")
@@ -642,13 +686,13 @@ def send_audio_message(recipient: str, media_path: str) -> Tuple[bool, str]:
             except Exception as e:
                 return False, f"Error converting file to opus ogg. You likely need to install ffmpeg: {str(e)}"
 
-        url = f"{WHATSAPP_API_BASE_URL}/send"
+        url = _tenant_api("send")
         payload = {
             "recipient": recipient,
             "media_path": media_path
         }
 
-        response = requests.post(url, json=payload, headers=_api_headers())
+        response = requests.post(url, json=payload, headers=_api_headers(), timeout=REQUEST_TIMEOUT)
 
         success, data = _bridge_response(response)
         return success, data.get("message", "Unknown response")
@@ -671,13 +715,13 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
         The local file path if download was successful, None otherwise
     """
     try:
-        url = f"{WHATSAPP_API_BASE_URL}/download"
+        url = _tenant_api("download")
         payload = {
             "message_id": message_id,
             "chat_jid": chat_jid
         }
 
-        response = requests.post(url, json=payload, headers=_api_headers())
+        response = requests.post(url, json=payload, headers=_api_headers(), timeout=REQUEST_TIMEOUT)
 
         success, data = _bridge_response(response)
         if success:
@@ -696,3 +740,106 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
     except Exception as e:
         print(f"Unexpected error: {str(e)}")
         return None
+
+
+def list_events(after: int = 0, rule: Optional[str] = None, limit: int = 50) -> List[dict]:
+    """Pull durável de eventos do tenant do processo. `after` é o cursor (seq > after).
+
+    Em erro de rede ou de API imprime a causa e devolve lista vazia.
+    """
+    try:
+        params: dict = {
+            "after": max(0, int(after)),
+            "limit": max(1, min(int(limit), EVENTS_MAX_LIMIT)),
+        }
+        if rule:
+            params["rule"] = rule
+
+        response = requests.get(_tenant_api("events"), params=params, headers=_api_headers(), timeout=REQUEST_TIMEOUT)
+        success, data = _bridge_response(response)
+        if not success:
+            print(f"Events request failed: {data.get('message', 'Unknown error')}")
+            return []
+        return list(data.get("events") or [])
+
+    except requests.RequestException as e:
+        print(f"Request error: {str(e)}")
+        return []
+    except ValueError:
+        print("Error parsing events response")
+        return []
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return []
+
+
+def wait_for_events(after: int = 0, timeout: float = 30.0, rule: Optional[str] = None, poll: float = 1.0) -> List[dict]:
+    """Espera o primeiro lote não vazio de eventos após `after`.
+
+    Faz polling a cada `poll` segundos e para no máximo em `timeout`.
+    Retorna [] se o prazo expirar. Cada request ao bridge tem timeout próprio (REQUEST_TIMEOUT).
+    """
+    poll = max(0.05, float(poll))
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+        events = list_events(after=after, rule=rule)
+        if events:
+            return events
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return []
+        time.sleep(min(poll, remaining))
+
+
+def list_rules() -> List[dict]:
+    """Lista as regras de evento do tenant do processo."""
+    try:
+        response = requests.get(_tenant_api("rules"), headers=_api_headers(), timeout=REQUEST_TIMEOUT)
+        success, data = _bridge_response(response)
+        if not success:
+            print(f"Rules request failed: {data.get('message', 'Unknown error')}")
+            return []
+        return list(data.get("rules") or [])
+
+    except requests.RequestException as e:
+        print(f"Request error: {str(e)}")
+        return []
+    except ValueError:
+        print("Error parsing rules response")
+        return []
+    except Exception as e:
+        print(f"Unexpected error: {str(e)}")
+        return []
+
+
+def ack_events(consumer_id: str, rule_id: str, seq: int) -> Tuple[bool, str]:
+    """Persiste o cursor de um consumer para uma regra (at-least-once)."""
+    try:
+        # consumer_id entra no path da URL: a regex impede '/', '..' e afins.
+        if not isinstance(consumer_id, str) or not CONSUMER_ID_PATTERN.fullmatch(consumer_id):
+            return False, (
+                "Invalid consumer_id: use 1 to 64 letters, digits, '_' or '-', "
+                "starting with a letter or digit"
+            )
+        if not isinstance(rule_id, str) or not rule_id.strip():
+            return False, "rule_id must be provided"
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq < 0:
+            return False, "seq must be a non-negative integer"
+
+        response = requests.post(
+            _tenant_api(f"consumers/{consumer_id}/ack"),
+            json={"rule_id": rule_id, "seq": seq},
+            headers=_api_headers(),
+            timeout=REQUEST_TIMEOUT,
+        )
+        success, data = _bridge_response(response)
+        if success:
+            return True, f"Cursor atualizado: last_seq={data.get('last_seq', seq)}"
+        return False, data.get("message", "Unknown response")
+
+    except requests.RequestException as e:
+        return False, f"Request error: {str(e)}"
+    except ValueError:
+        return False, "Error parsing response"
+    except Exception as e:
+        return False, f"Unexpected error: {str(e)}"
