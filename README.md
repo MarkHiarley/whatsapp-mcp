@@ -270,6 +270,28 @@ curl -sS -X POST http://127.0.0.1:8080/api/v1/send \
   -d '{"recipient":"5511999999999","message":"Hello!"}'
 ```
 
+### Panel read API
+
+Read-only routes for a dashboard or inbox. All are scoped by the tenant key:
+
+```bash
+# Counters and last activity
+curl -sS "$BASE/tenants/cliente-x/stats" -H "Authorization: Bearer $TENANT_TOKEN"
+
+# Chats ordered by last activity (query/limit/offset)
+curl -sS "$BASE/tenants/cliente-x/chats?limit=20" -H "Authorization: Bearer $TENANT_TOKEN"
+
+# Messages of one chat, oldest first (before=RFC3339, limit)
+curl -sS "$BASE/tenants/cliente-x/chats/5511999999999@s.whatsapp.net/messages?limit=50" \
+  -H "Authorization: Bearer $TENANT_TOKEN"
+
+# Media bytes; downloads from WhatsApp on first access when connected
+curl -sS "$BASE/tenants/cliente-x/media/<message_id>?chat_jid=5511999999999@s.whatsapp.net" \
+  -H "Authorization: Bearer $TENANT_TOKEN" -o media.bin
+```
+
+`chats` returns the last message preview; `messages` returns `has_more` for pagination; `media` streams the file with its content type instead of exposing a server-local path.
+
 ### Failure modes
 
 Errors use the `{success, data, error}` envelope, with `error.code` and `error.message`.

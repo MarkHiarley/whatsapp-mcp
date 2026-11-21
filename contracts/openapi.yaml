@@ -221,6 +221,105 @@ paths:
         '405': { $ref: '#/components/responses/MethodNotAllowed' }
         '500': { $ref: '#/components/responses/InternalError' }
         '503': { $ref: '#/components/responses/TenantDisconnected' }
+  /tenants/{tenant}/chats:
+    get:
+      tags: [messages]
+      operationId: listTenantChats
+      summary: Lists conversations with the last message
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - name: query
+          in: query
+          schema: { type: string }
+          description: Filters by chat name or JID (substring).
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        '200':
+          description: Chats ordered by last activity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/chats/{jid}/messages:
+    get:
+      tags: [messages]
+      operationId: listTenantChatMessages
+      summary: Lists messages of one chat, oldest first
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/ChatJID'
+        - name: before
+          in: query
+          schema: { type: string, format: date-time }
+          description: Returns only messages older than this ISO-8601 timestamp.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Messages of the chat
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessageListResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/media/{messageID}:
+    get:
+      tags: [messages]
+      operationId: streamTenantMedia
+      summary: Streams the media file of one message
+      description: Downloads from WhatsApp on first access when the tenant is connected.
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - name: messageID
+          in: path
+          required: true
+          schema: { type: string }
+        - name: chat_jid
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Raw media bytes
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503': { $ref: '#/components/responses/TenantDisconnected' }
+  /tenants/{tenant}/stats:
+    get:
+      tags: [tenants]
+      operationId: getTenantStats
+      summary: Counts and last activity of one tenant
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Tenant counters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /tenants/{tenant}/events:
     get:
       tags: [events]
@@ -554,6 +653,13 @@ components:
       in: path
       required: true
       schema: { type: string }
+    ChatJID:
+      name: jid
+      in: path
+      required: true
+      schema:
+        type: string
+        examples: ['5511999999999@s.whatsapp.net', '120363000000000000@g.us']
   schemas:
     TenantView:
       type: object
@@ -733,6 +839,78 @@ components:
         last_error: { type: string }
         next_attempt_at: { type: string, format: date-time }
         delivered_at: { type: string, format: date-time }
+    ChatListItem:
+      type: object
+      required: [jid, name, last_is_from_me, is_group]
+      properties:
+        jid: { type: string }
+        name: { type: string }
+        last_message_time: { type: string, format: date-time }
+        last_message: { type: string }
+        last_sender: { type: string }
+        last_is_from_me: { type: boolean }
+        last_media_type: { type: string }
+        is_group: { type: boolean }
+    MessageListItem:
+      type: object
+      required: [id, chat_jid, sender, content, timestamp, is_from_me]
+      properties:
+        id: { type: string }
+        chat_jid: { type: string }
+        sender: { type: string }
+        content: { type: string }
+        timestamp: { type: string, format: date-time }
+        is_from_me: { type: boolean }
+        media_type: { type: string }
+        filename: { type: string }
+    TenantStats:
+      type: object
+      required: [tenant_id, status, chats, messages, events, keys]
+      properties:
+        tenant_id: { type: string }
+        status:
+          type: string
+          enum: [disconnected, pairing, connected, logged_out]
+        chats: { type: integer }
+        messages: { type: integer }
+        events: { type: integer }
+        keys: { type: integer }
+        last_message_time: { type: string, format: date-time }
+    ChatListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [chats]
+              properties:
+                chats:
+                  type: array
+                  items: { $ref: '#/components/schemas/ChatListItem' }
+    MessageListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [messages, has_more]
+              properties:
+                messages:
+                  type: array
+                  items: { $ref: '#/components/schemas/MessageListItem' }
+                has_more: { type: boolean }
+    StatsResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [stats]
+              properties:
+                stats: { $ref: '#/components/schemas/TenantStats' }
     APIError:
       type: object
       required: [code, message]
