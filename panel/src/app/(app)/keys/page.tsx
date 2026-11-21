@@ -4,7 +4,6 @@ import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
 import { KeyActions } from "@/components/keys/key-actions";
 import { NewKeyDialog } from "@/components/keys/new-key-dialog";
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,23 +16,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { loadKeys } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
 export default async function KeysPage() {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Chaves" description="Credenciais do tenant configurado." />
-        <NotConfigured />
-      </>
-    );
-  }
-
+  const context = await requireTenantContext();
+  const { tenantId } = context;
+  const canManage = context.isAdmin || context.organizationRole === "owner";
   const result = await loadKeys();
 
   return (
@@ -41,7 +34,7 @@ export default async function KeysPage() {
       <PageHeader
         title="Chaves"
         description="Cada key autentica uma integração. Tokens nunca são exibidos depois da criação."
-        actions={<NewKeyDialog tenantId={TENANT_ID} />}
+        actions={canManage ? <NewKeyDialog tenantId={tenantId} /> : undefined}
       />
 
       {!result.ok ? <ErrorState message={result.error} code={result.code} /> : null}
@@ -50,7 +43,7 @@ export default async function KeysPage() {
         <EmptyState
           title="Nenhuma key"
           description="Emita uma key para conectar integrações a este tenant."
-          action={<NewKeyDialog tenantId={TENANT_ID} />}
+          action={canManage ? <NewKeyDialog tenantId={tenantId} /> : undefined}
         />
       ) : null}
 
@@ -97,7 +90,11 @@ export default async function KeysPage() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <KeyActions tenantId={TENANT_ID} tenantKey={tenantKey} />
+                      {canManage ? (
+                        <KeyActions tenantId={tenantId} tenantKey={tenantKey} />
+                      ) : (
+                        <Badge variant="outline">somente leitura</Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

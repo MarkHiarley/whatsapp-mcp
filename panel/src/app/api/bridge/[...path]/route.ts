@@ -1,27 +1,56 @@
 import type { NextRequest } from "next/server";
 
+import { getTenantContext } from "@/lib/session";
+
 const BASE = (process.env.BRIDGE_URL ?? "http://127.0.0.1:8080/api/v1").replace(/\/$/, "");
 
-function resolveToken(segments: string[], method: string): string | null {
-  const isTenantCollection = segments.length === 1 && segments[0] === "tenants";
-  const isTenantItem = segments.length === 2 && segments[0] === "tenants";
+function isAdminRoute(segments: string[], method: string): boolean {
   if (segments[0] !== "tenants") {
-    return null;
+    return false;
   }
-  if (isTenantCollection || (isTenantItem && method === "DELETE")) {
-    return process.env.BRIDGE_ADMIN_TOKEN || null;
+  if (segments.length === 1) {
+    return true;
   }
-  return process.env.BRIDGE_API_TOKEN || null;
+  return segments.length === 2 && method === "DELETE";
+}
+
+function error(status: number, code: string, message: string): Response {
+  return Response.json({ success: false, data: null, error: { code, message } }, { status });
 }
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params;
-  const token = resolveToken(path, request.method);
-  if (!token) {
-    return Response.json(
-      { success: false, data: null, error: { code: "PANEL_NOT_CONFIGURED", message: "Bridge token is not configured" } },
-      { status: 503 },
-    );
+  if (path[0] !== "tenants") {
+    return error(404, "NOT_FOUND", "Unknown panel route");
+  }
+
+  const session = await getTenantContext();
+  if (!session) {
+    return error(401, "UNAUTHORIZED", "Sign in to use the panel");
+  }
+
+  const adminRoute = isAdminRoute(path, request.method);
+  const sensitiveWrite =
+    ["keys", "webhooks", "rules"].some((segment) => path.includes(segment)) &&
+    ["POST", "PATCH", "DELETE"].includes(request.method);
+  if (!session.isAdmin && sensitiveWrite && session.role !== "owner") {
+    return error(403, "FORBIDDEN", "Only the tenant owner can change keys, rules or webhooks");
+  }
+
+  let token: string | null;
+  if (adminRoute) {
+    if (!session.isAdmin) {
+      return error(403, "FORBIDDEN", "Admin access required");
+    }
+    token = process.env.BRIDGE_ADMIN_TOKEN ?? null;
+    if (!token) {
+      return error(503, "ADMIN_DISABLED", "BRIDGE_ADMIN_TOKEN is not configured");
+    }
+  } else {
+    if (path[1] && !session.isAdmin && path[1] !== session.tenantId) {
+      return error(403, "FORBIDDEN", "This key belongs to another tenant");
+    }
+    token = session.token;
   }
 
   const url = new URL(request.url);

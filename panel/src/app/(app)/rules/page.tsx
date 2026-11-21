@@ -2,7 +2,6 @@ import { connection } from "next/server";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { NewRuleDialog } from "@/components/rules/new-rule-dialog";
 import { RuleActions } from "@/components/rules/rule-actions";
@@ -17,24 +16,18 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { loadRules } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime } from "@/lib/format";
 import { summarizeMatch } from "@/lib/rule-match";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
 export default async function RulesPage() {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Regras" description="Regras de captura de eventos." />
-        <NotConfigured />
-      </>
-    );
-  }
-
+  const context = await requireTenantContext();
+  const { tenantId } = context;
+  const canManage = context.isAdmin || context.organizationRole === "owner";
   const result = await loadRules();
 
   return (
@@ -42,7 +35,7 @@ export default async function RulesPage() {
       <PageHeader
         title="Regras"
         description="Regras definem quais mensagens viram eventos. O match usa AND entre campos e OR dentro das listas."
-        actions={<NewRuleDialog tenantId={TENANT_ID} />}
+        actions={canManage ? <NewRuleDialog tenantId={tenantId} /> : undefined}
       />
 
       {!result.ok ? <ErrorState message={result.error} code={result.code} /> : null}
@@ -51,7 +44,7 @@ export default async function RulesPage() {
         <EmptyState
           title="Nenhuma regra"
           description="Crie a primeira regra para capturar mensagens por chat, remetente, texto ou flags."
-          action={<NewRuleDialog tenantId={TENANT_ID} />}
+          action={canManage ? <NewRuleDialog tenantId={tenantId} /> : undefined}
         />
       ) : null}
 
@@ -96,7 +89,11 @@ export default async function RulesPage() {
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">{formatDateTime(rule.created_at)}</TableCell>
                     <TableCell>
-                      <RuleActions tenantId={TENANT_ID} rule={rule} />
+                      {canManage ? (
+                        <RuleActions tenantId={tenantId} rule={rule} />
+                      ) : (
+                        <Badge variant="outline">somente leitura</Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

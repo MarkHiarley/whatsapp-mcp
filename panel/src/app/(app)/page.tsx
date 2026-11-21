@@ -4,7 +4,6 @@ import { Activity, ArrowRight, CircleAlert, KeyRound, MessageCircle, MessagesSqu
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { MessagesChart } from "@/components/overview/messages-chart";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -14,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { loadChats, loadStats, loadStatus } from "@/lib/api";
-import { bridgeConfigured, TENANT_ID } from "@/lib/bridge";
 import { formatNumber, formatRelative, initials, mediaLabel, phoneFromJid } from "@/lib/format";
 import { STATUS_LABELS } from "@/lib/status";
 
@@ -22,15 +20,6 @@ export const instant = false;
 
 export default async function OverviewPage() {
   await connection();
-
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Visão geral" description="Sessão, volume e atividade do tenant configurado." />
-        <NotConfigured />
-      </>
-    );
-  }
 
   const [statsResult, statusResult, chatsResult] = await Promise.all([
     loadStats(),
@@ -79,7 +68,7 @@ export default async function OverviewPage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-start">
               <StatusBadge status={status} />
-              <span className="font-mono text-[11px] text-muted-foreground">{TENANT_ID}</span>
+              <span className="font-mono text-[11px] text-muted-foreground">{stats.tenant_id}</span>
             </div>
             <p className="mt-3 truncate font-mono text-xs text-muted-foreground">
               {jid ?? "JID indisponível até o pareamento"}

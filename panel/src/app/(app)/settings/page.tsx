@@ -2,30 +2,22 @@ import { connection } from "next/server";
 import Link from "next/link";
 import { ExternalLink, ShieldCheck } from "lucide-react";
 
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { QrPairing } from "@/components/pairing/qr-pairing";
 import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadStatus } from "@/lib/api";
-import { BRIDGE_URL, TENANT_ID, bridgeConfigured } from "@/lib/bridge";
+import { BRIDGE_URL } from "@/lib/bridge";
 import { formatDateTime } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
 export default async function SettingsPage() {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Pareamento" description="QR e estado da sessão do tenant configurado." />
-        <NotConfigured />
-      </>
-    );
-  }
-
+  const context = await requireTenantContext();
   const statusResult = await loadStatus();
 
   return (
@@ -44,7 +36,7 @@ export default async function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <QrPairing tenantId={TENANT_ID} initialStatus={statusResult.ok ? statusResult.data.status : "disconnected"} />
+            <QrPairing tenantId={context.tenantId} initialStatus={statusResult.ok ? statusResult.data.status : "disconnected"} />
           </CardContent>
         </Card>
 
@@ -54,7 +46,7 @@ export default async function SettingsPage() {
               <CardTitle className="text-sm">Tenant atual</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p className="font-mono text-xs">{TENANT_ID}</p>
+              <p className="font-mono text-xs">{context.tenantId}</p>
               {statusResult.ok ? (
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={statusResult.data.status} />
@@ -91,12 +83,14 @@ export default async function SettingsPage() {
                 {BRIDGE_URL}
               </Link>
               <p>
-                Trocar o tenant exige atualizar <code className="font-mono">BRIDGE_TENANT_ID</code> e{" "}
-                <code className="font-mono">BRIDGE_API_TOKEN</code> no servidor do painel e reiniciar o processo.
+                O tenant ativo vem da organização vinculada à sua conta, guardada no Postgres do painel. Para trocar,
+                conecte outra key em onboarding.
               </p>
-              <Link href="/tenants" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                Administrar tenants
-              </Link>
+              {context.isAdmin ? (
+                <Link href="/tenants" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                  Administrar tenants
+                </Link>
+              ) : null}
             </CardContent>
           </Card>
         </div>

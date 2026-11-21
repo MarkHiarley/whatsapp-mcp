@@ -3,7 +3,6 @@ import Link from "next/link";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { NewWebhookDialog } from "@/components/webhooks/new-webhook-dialog";
 import { WebhookActions } from "@/components/webhooks/webhook-actions";
@@ -19,23 +18,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { loadRules, loadWebhooks } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
 export default async function WebhooksPage() {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Webhooks" description="Entregas assinadas dos eventos." />
-        <NotConfigured />
-      </>
-    );
-  }
-
+  const context = await requireTenantContext();
+  const { tenantId } = context;
+  const canManage = context.isAdmin || context.organizationRole === "owner";
   const [webhooksResult, rulesResult] = await Promise.all([loadWebhooks(), loadRules()]);
   const rules = rulesResult.ok ? rulesResult.data.map((rule) => ({ id: rule.id, name: rule.name })) : [];
   const ruleNames = new Map(rules.map((rule) => [rule.id, rule.name]));
@@ -45,7 +38,7 @@ export default async function WebhooksPage() {
       <PageHeader
         title="Webhooks"
         description="Cada webhook escuta uma regra e recebe POSTs com assinatura HMAC."
-        actions={<NewWebhookDialog tenantId={TENANT_ID} rules={rules} />}
+        actions={canManage ? <NewWebhookDialog tenantId={tenantId} rules={rules} /> : undefined}
       />
 
       {!rulesResult.ok ? (
@@ -61,8 +54,8 @@ export default async function WebhooksPage() {
           title="Nenhum webhook"
           description="Configure um endpoint para receber os eventos das regras por HTTP."
           action={
-            rules.length > 0 ? (
-              <NewWebhookDialog tenantId={TENANT_ID} rules={rules} />
+            rules.length > 0 && canManage ? (
+              <NewWebhookDialog tenantId={tenantId} rules={rules} />
             ) : (
               <Link href="/rules" className={buttonVariants({ variant: "outline", size: "sm" })}>
                 Criar uma regra primeiro
@@ -109,7 +102,11 @@ export default async function WebhooksPage() {
                     </TableCell>
                     <TableCell className="text-xs whitespace-nowrap">{formatDateTime(webhook.created_at)}</TableCell>
                     <TableCell>
-                      <WebhookActions tenantId={TENANT_ID} webhook={webhook} />
+                      {canManage ? (
+                        <WebhookActions tenantId={tenantId} webhook={webhook} />
+                      ) : (
+                        <Badge variant="outline">somente leitura</Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

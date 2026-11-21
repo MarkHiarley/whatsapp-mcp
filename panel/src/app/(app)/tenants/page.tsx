@@ -1,7 +1,8 @@
 import { connection } from "next/server";
+import { redirect } from "next/navigation";
 
 import { EmptyState } from "@/components/empty-state";
-import { AdminNotConfigured, NotConfigured } from "@/components/not-configured";
+import { AdminNotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { NewTenantDialog } from "@/components/tenants/new-tenant-dialog";
@@ -17,21 +18,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { loadTenants } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
 export default async function TenantsPage() {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Tenants" description="Administração de tenants do bridge." />
-        <NotConfigured />
-      </>
-    );
+  const context = await requireTenantContext();
+  if (!context.isAdmin) {
+    redirect("/");
   }
 
   const result = await loadTenants();
@@ -114,12 +111,12 @@ export default async function TenantsPage() {
                     <TableCell className="text-xs whitespace-nowrap">{formatDateTime(tenant.created_at)}</TableCell>
                     <TableCell>
                       <div className="flex items-center justify-end gap-2">
-                        {tenant.id === TENANT_ID ? (
+                        {tenant.id === context.tenantId ? (
                           <Badge variant="outline" className="hidden sm:inline-flex">
                             atual
                           </Badge>
                         ) : null}
-                        <TenantActions tenant={tenant} currentTenantId={TENANT_ID} />
+                        <TenantActions tenant={tenant} currentTenantId={context.tenantId} />
                       </div>
                     </TableCell>
                   </TableRow>

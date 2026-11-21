@@ -1,20 +1,27 @@
 import { Download } from "lucide-react";
 
 import type { Schema } from "@/lib/api";
-import { TENANT_ID } from "@/lib/bridge";
 import { mediaLabel } from "@/lib/format";
 
-function mediaUrl(messageId: string, jid: string): string {
-  const tenant = encodeURIComponent(TENANT_ID);
+function mediaUrl(messageId: string, jid: string, tenantId: string): string {
+  const tenant = encodeURIComponent(tenantId);
   return `/api/bridge/tenants/${tenant}/media/${encodeURIComponent(messageId)}?chat_jid=${encodeURIComponent(jid)}`;
 }
 
-export function MessageMedia({ message, jid }: { message: Schema["MessageListItem"]; jid: string }) {
+export function MessageMedia({
+  message,
+  jid,
+  tenantId,
+}: {
+  message: Schema["MessageListItem"];
+  jid: string;
+  tenantId: string;
+}) {
   if (!message.media_type) {
     return null;
   }
 
-  const src = mediaUrl(message.id, jid);
+  const src = mediaUrl(message.id, jid, tenantId);
   const label = mediaLabel(message.media_type, message.filename);
 
   if (message.media_type === "image") {

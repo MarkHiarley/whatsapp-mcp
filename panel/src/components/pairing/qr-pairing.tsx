@@ -27,6 +27,11 @@ export function QrPairing({ tenantId, initialStatus }: { tenantId: string; initi
 
   useEffect(() => {
     doneRef.current = false;
+    if (TERMINAL_STATUSES.includes(initialStatus)) {
+      return;
+    }
+
+    const refreshKey = `panel:qr-refreshed:${tenantId}`;
     const source = new EventSource(`/api/bridge/tenants/${encodeURIComponent(tenantId)}/qr`);
 
     function handleQr(event: MessageEvent<string>) {
@@ -49,7 +54,10 @@ export function QrPairing({ tenantId, initialStatus }: { tenantId: string; initi
             doneRef.current = true;
             source.close();
             setStream("closed");
-            router.refresh();
+            if (payload.status === "connected" && !sessionStorage.getItem(refreshKey)) {
+              sessionStorage.setItem(refreshKey, "1");
+              router.refresh();
+            }
           }
         }
       } catch {
@@ -71,9 +79,11 @@ export function QrPairing({ tenantId, initialStatus }: { tenantId: string; initi
       source.removeEventListener("status", handleStatus as EventListener);
       source.close();
     };
-  }, [tenantId, router, attempt]);
+  }, [tenantId, router, attempt, initialStatus]);
 
-  const connected = status === "connected";
+  const displayStatus = TERMINAL_STATUSES.includes(initialStatus) ? initialStatus : status;
+  const displayStream: StreamState = TERMINAL_STATUSES.includes(displayStatus) ? "closed" : stream;
+  const connected = displayStatus === "connected";
 
   return (
     <div className="flex flex-col items-center gap-4 py-2">
@@ -89,7 +99,7 @@ export function QrPairing({ tenantId, initialStatus }: { tenantId: string; initi
         </div>
       ) : (
         <div className="flex size-56 flex-col items-center justify-center gap-2 rounded-xl border border-dashed text-center">
-          {stream === "error" ? (
+          {displayStream === "error" ? (
             <>
               <TriangleAlert className="size-6 text-amber-500" aria-hidden />
               <p className="px-4 text-sm text-muted-foreground">
@@ -107,17 +117,18 @@ export function QrPairing({ tenantId, initialStatus }: { tenantId: string; initi
 
       <div className="flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
         <Badge variant="outline" className="font-mono">
-          status: {status}
+          status: {displayStatus}
         </Badge>
         <Badge variant="outline" className="font-mono">
-          stream: {stream}
+          stream: {displayStream}
         </Badge>
-        {stream === "error" || stream === "closed" ? (
+        {displayStream === "error" || displayStream === "closed" ? (
           <Button
             type="button"
             variant="outline"
             size="xs"
             onClick={() => {
+              sessionStorage.removeItem(`panel:qr-refreshed:${tenantId}`);
               setCode(null);
               setStream("live");
               setAttempt((value) => value + 1);

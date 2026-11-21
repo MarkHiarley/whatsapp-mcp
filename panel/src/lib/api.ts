@@ -1,12 +1,16 @@
-import { adminToken, bridgeClient, bridgeConfigured, TENANT_ID } from "@/lib/bridge";
-import type { components } from "@/lib/api-schema";
+import type { Client } from "openapi-fetch";
+
+import type { components, paths } from "@/lib/api-schema";
+import { adminBridgeToken, bridgeClient } from "@/lib/bridge";
+import { getTenantContext } from "@/lib/session";
 
 export type Schema = components["schemas"];
 export type ApiResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
-export const NOT_CONFIGURED_MESSAGE =
-  "BRIDGE_API_TOKEN não está configurado no painel. Defina BRIDGE_URL e BRIDGE_API_TOKEN no ambiente para falar com o bridge.";
+export const NOT_CONNECTED_MESSAGE =
+  "Nenhum tenant está vinculado a esta conta. Conecte uma key do bridge para continuar.";
 
+type BridgeClient = Client<paths>;
 type EnvelopeLike = { error?: { code?: string; message?: string } | null };
 
 function failure(error: unknown): { ok: false; error: string; code?: string } {
@@ -31,33 +35,37 @@ function missing<T>(message: string, code?: string): ApiResult<T> {
   return { ok: false, error: message, code };
 }
 
-export async function loadStatus(): Promise<ApiResult<Schema["TenantView"]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
+async function withTenant<T>(
+  run: (client: BridgeClient, tenant: string) => Promise<ApiResult<T>>,
+): Promise<ApiResult<T>> {
+  const context = await getTenantContext();
+  if (!context) {
+    return missing(NOT_CONNECTED_MESSAGE, "TENANT_NOT_CONNECTED");
   }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/status", {
-      params: { path: { tenant: TENANT_ID } },
+  return guard(() => run(bridgeClient(context.token), context.tenantId));
+}
+
+export async function loadStatus(): Promise<ApiResult<Schema["TenantView"]>> {
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/status", {
+      params: { path: { tenant } },
       cache: "no-store",
     });
     if (error) {
       return failure(error);
     }
-    const tenant = data?.data?.tenant;
-    if (!tenant) {
+    const view = data?.data?.tenant;
+    if (!view) {
       return missing("O bridge não retornou o status do tenant.", "EMPTY_RESPONSE");
     }
-    return { ok: true, data: tenant };
+    return { ok: true, data: view };
   });
 }
 
 export async function loadStats(): Promise<ApiResult<Schema["TenantStats"]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/stats", {
-      params: { path: { tenant: TENANT_ID } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/stats", {
+      params: { path: { tenant } },
       cache: "no-store",
     });
     if (error) {
@@ -72,12 +80,9 @@ export async function loadStats(): Promise<ApiResult<Schema["TenantStats"]>> {
 }
 
 export async function loadChats(query?: string, limit = 50): Promise<ApiResult<Schema["ChatListItem"][]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/chats", {
-      params: { path: { tenant: TENANT_ID }, query: { query: query || undefined, limit } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/chats", {
+      params: { path: { tenant }, query: { query: query || undefined, limit } },
       cache: "no-store",
     });
     if (error) {
@@ -90,12 +95,9 @@ export async function loadChats(query?: string, limit = 50): Promise<ApiResult<S
 export type MessagePage = { messages: Schema["MessageListItem"][]; hasMore: boolean };
 
 export async function loadMessages(jid: string, before?: string, limit = 50): Promise<ApiResult<MessagePage>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/chats/{jid}/messages", {
-      params: { path: { tenant: TENANT_ID, jid }, query: { before: before || undefined, limit } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/chats/{jid}/messages", {
+      params: { path: { tenant, jid }, query: { before: before || undefined, limit } },
       cache: "no-store",
     });
     if (error) {
@@ -115,14 +117,11 @@ export async function loadEvents(options: {
   rule?: string;
   limit?: number;
 }): Promise<ApiResult<EventPage>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
   const { after, rule, limit = 100 } = options;
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/events", {
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/events", {
       params: {
-        path: { tenant: TENANT_ID },
+        path: { tenant },
         query: { after: after || undefined, rule: rule || undefined, limit },
       },
       cache: "no-store",
@@ -138,12 +137,9 @@ export async function loadEvents(options: {
 }
 
 export async function loadRules(): Promise<ApiResult<Schema["EventRule"][]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/rules", {
-      params: { path: { tenant: TENANT_ID } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/rules", {
+      params: { path: { tenant } },
       cache: "no-store",
     });
     if (error) {
@@ -154,12 +150,9 @@ export async function loadRules(): Promise<ApiResult<Schema["EventRule"][]>> {
 }
 
 export async function loadWebhooks(): Promise<ApiResult<Schema["WebhookView"][]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/webhooks", {
-      params: { path: { tenant: TENANT_ID } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/webhooks", {
+      params: { path: { tenant } },
       cache: "no-store",
     });
     if (error) {
@@ -170,12 +163,9 @@ export async function loadWebhooks(): Promise<ApiResult<Schema["WebhookView"][]>
 }
 
 export async function loadKeys(): Promise<ApiResult<Schema["TenantKeyView"][]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/keys", {
-      params: { path: { tenant: TENANT_ID } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/keys", {
+      params: { path: { tenant } },
       cache: "no-store",
     });
     if (error) {
@@ -186,12 +176,9 @@ export async function loadKeys(): Promise<ApiResult<Schema["TenantKeyView"][]>> 
 }
 
 export async function loadDeliveries(webhookId: string, limit = 25): Promise<ApiResult<Schema["DeliveryView"][]>> {
-  if (!bridgeConfigured()) {
-    return missing(NOT_CONFIGURED_MESSAGE, "PANEL_NOT_CONFIGURED");
-  }
-  return guard(async () => {
-    const { data, error } = await bridgeClient().GET("/tenants/{tenant}/webhooks/{webhookId}/deliveries", {
-      params: { path: { tenant: TENANT_ID, webhookId }, query: { limit } },
+  return withTenant(async (client, tenant) => {
+    const { data, error } = await client.GET("/tenants/{tenant}/webhooks/{webhookId}/deliveries", {
+      params: { path: { tenant, webhookId }, query: { limit } },
       cache: "no-store",
     });
     if (error) {
@@ -202,7 +189,14 @@ export async function loadDeliveries(webhookId: string, limit = 25): Promise<Api
 }
 
 export async function loadTenants(): Promise<ApiResult<Schema["TenantView"][]>> {
-  const token = adminToken();
+  const context = await getTenantContext();
+  if (!context) {
+    return missing(NOT_CONNECTED_MESSAGE, "TENANT_NOT_CONNECTED");
+  }
+  if (!context.isAdmin) {
+    return missing("Apenas admin pode listar e provisionar tenants.", "FORBIDDEN");
+  }
+  const token = adminBridgeToken();
   if (!token) {
     return missing(
       "BRIDGE_ADMIN_TOKEN não está configurado no painel. Defina o token admin para listar e provisionar tenants.",

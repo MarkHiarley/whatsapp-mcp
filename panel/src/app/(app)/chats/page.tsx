@@ -4,7 +4,6 @@ import { MessagesSquare, Search, Users } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -12,7 +11,6 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { loadChats } from "@/lib/api";
-import { bridgeConfigured } from "@/lib/bridge";
 import { formatRelative, initials, phoneFromJid, truncate } from "@/lib/format";
 
 export const instant = false;
@@ -23,15 +21,6 @@ export default async function ChatsPage({
   searchParams: Promise<{ query?: string }>;
 }) {
   await connection();
-
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Conversas" description="Conversas do tenant configurado." />
-        <NotConfigured />
-      </>
-    );
-  }
 
   const { query } = await searchParams;
   const result = await loadChats(query);
