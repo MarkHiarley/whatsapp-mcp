@@ -1,0 +1,72 @@
+name: whatsapp-panel
+
+services:
+  whatsapp-mcp:
+    image: ${BRIDGE_IMAGE:-ghcr.io/markhiarley/whatsapp-bridge:latest}
+    container_name: whatsapp-mcp
+    env_file:
+      - .env
+    environment:
+      TZ: America/Sao_Paulo
+    volumes:
+      - /root/whatsapp-mcp/data:/app/whatsapp-bridge/store
+    restart: unless-stopped
+
+  panel-db:
+    image: postgres:17-alpine
+    container_name: whatsapp-panel-db
+    environment:
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: ${PANEL_DB_PASSWORD:?configure PANEL_DB_PASSWORD in .env}
+      POSTGRES_DB: panel
+    volumes:
+      - panel-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panel -d panel"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  panel-migrate:
+    image: ${PANEL_MIGRATE_IMAGE:-ghcr.io/markhiarley/whatsapp-panel-migrate:latest}
+    container_name: whatsapp-panel-migrate
+    depends_on:
+      panel-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://panel:${PANEL_DB_PASSWORD}@panel-db:5432/panel
+    restart: "no"
+
+  panel:
+    image: ${PANEL_IMAGE:-ghcr.io/markhiarley/whatsapp-panel:latest}
+    container_name: whatsapp-panel
+    depends_on:
+      panel-db:
+        condition: service_healthy
+      panel-migrate:
+        condition: service_completed_successfully
+      whatsapp-mcp:
+        condition: service_started
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      DATABASE_URL: postgres://panel:${PANEL_DB_PASSWORD}@panel-db:5432/panel
+    expose:
+      - "3000"
+    networks:
+      - default
+      - edge
+    restart: unless-stopped
+
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:-default-app-network}
+
+volumes:
+  panel-db:

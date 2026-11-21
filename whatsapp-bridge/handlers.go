@@ -68,12 +68,14 @@ func handleMessage(rt *tenantRuntime, msg *events.Message, logger waLog.Logger) 
 	}
 
 	isGroup := chat.Server == types.GroupServer
+	mentionedMe, replyToMe := messageContext(client, msg.Message)
 	meta := &MessageEventMeta{
 		ChatName:    name,
 		SenderJID:   senderJID.String(),
 		SenderName:  messageStore.ContactName(senderJID),
 		IsGroup:     isGroup,
-		MentionedMe: mentionsSelf(client, msg.Message),
+		MentionedMe: mentionedMe,
+		IsReplyToMe: replyToMe,
 	}
 
 	// Store message and its event atomically
@@ -112,11 +114,11 @@ func handleMessage(rt *tenantRuntime, msg *events.Message, logger waLog.Logger) 
 	}
 }
 
-// mentionsSelf reports whether the message mentions this account, by phone
-// number or privacy LID, in any message type that carries context info.
-func mentionsSelf(client *whatsmeow.Client, msg *waProto.Message) bool {
+// messageContext reports whether the message mentions this account or quotes
+// one of its messages, by phone number or privacy LID.
+func messageContext(client *whatsmeow.Client, msg *waProto.Message) (bool, bool) {
 	if client == nil || client.Store == nil || msg == nil {
-		return false
+		return false, false
 	}
 
 	var contextInfo *waProto.ContextInfo
@@ -132,8 +134,8 @@ func mentionsSelf(client *whatsmeow.Client, msg *waProto.Message) bool {
 	case msg.GetAudioMessage() != nil:
 		contextInfo = msg.GetAudioMessage().GetContextInfo()
 	}
-	if contextInfo == nil || len(contextInfo.GetMentionedJID()) == 0 {
-		return false
+	if contextInfo == nil {
+		return false, false
 	}
 
 	var self []string
@@ -149,14 +151,27 @@ func mentionsSelf(client *whatsmeow.Client, msg *waProto.Message) bool {
 		self = append(self, client.Store.LID.String())
 	}
 
-	for _, mentioned := range contextInfo.GetMentionedJID() {
+	mentioned := false
+	for _, mentionedJID := range contextInfo.GetMentionedJID() {
 		for _, own := range self {
-			if jidMatches(mentioned, own) {
-				return true
+			if jidMatches(mentionedJID, own) {
+				mentioned = true
+				break
 			}
 		}
 	}
-	return false
+
+	replyToMe := false
+	if participant := contextInfo.GetParticipant(); participant != "" {
+		for _, own := range self {
+			if jidMatches(participant, own) {
+				replyToMe = true
+				break
+			}
+		}
+	}
+
+	return mentioned, replyToMe
 }
 
 // GetChatName determines the appropriate name for a chat based on JID and other info

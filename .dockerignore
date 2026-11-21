@@ -2,6 +2,8 @@
 .env
 data
 store
+panel
+deploy
 **/.venv
 **/__pycache__
 **/*.pyc

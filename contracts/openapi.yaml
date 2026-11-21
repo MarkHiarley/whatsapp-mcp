@@ -745,7 +745,7 @@ components:
         path: { type: string }
     Event:
       type: object
-      required: [seq, message_id, chat_jid, is_group, is_from_me, mentioned_me, content, timestamp, created_at]
+      required: [seq, message_id, chat_jid, is_group, is_from_me, mentioned_me, is_reply_to_me, content, timestamp, created_at]
       properties:
         seq: { type: integer, format: int64 }
         message_id: { type: string }
@@ -756,6 +756,7 @@ components:
         is_group: { type: boolean }
         is_from_me: { type: boolean }
         mentioned_me: { type: boolean }
+        is_reply_to_me: { type: boolean }
         content: { type: string }
         media_type: { type: string }
         timestamp: { type: string, format: date-time }
@@ -770,6 +771,13 @@ components:
         is_group: { type: boolean }
         is_from_me: { type: boolean }
         mentioned_me: { type: boolean }
+        is_reply_to_me: { type: boolean }
+        has_media: { type: boolean }
+        media_types:
+          type: array
+          items:
+            type: string
+            enum: [image, video, audio, document, sticker]
         text_contains: { type: array, items: { type: string } }
         text_regex: { type: string }
     EventRule:
@@ -811,6 +819,9 @@ components:
         id: { type: string }
         url: { type: string, format: uri }
         rule_id: { type: string }
+        header_names:
+          type: array
+          items: { type: string }
         enabled: { type: boolean }
         created_at: { type: string, format: date-time }
     CreateWebhookRequest:
@@ -820,6 +831,10 @@ components:
       properties:
         url: { type: string, format: uri }
         rule_id: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: Headers fixos enviados em toda entrega (ex. Authorization).
         enabled: { type: boolean, default: true }
     UpdateWebhookRequest:
       type: object
@@ -827,6 +842,10 @@ components:
       properties:
         url: { type: string, format: uri }
         rule_id: { type: string }
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: Substitui os headers fixos; envie {} para remover.
         enabled: { type: boolean }
     DeliveryView:
       type: object
@@ -865,7 +884,7 @@ components:
         filename: { type: string }
     TenantStats:
       type: object
-      required: [tenant_id, status, chats, messages, events, keys]
+      required: [tenant_id, status, chats, messages, events, keys, messages_by_day]
       properties:
         tenant_id: { type: string }
         status:
@@ -876,6 +895,15 @@ components:
         events: { type: integer }
         keys: { type: integer }
         last_message_time: { type: string, format: date-time }
+        messages_by_day:
+          type: array
+          items: { $ref: '#/components/schemas/DailyMessage' }
+    DailyMessage:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string, examples: ['2026-11-21'] }
+        count: { type: integer }
     ChatListResponse:
       allOf:
         - $ref: '#/components/schemas/EnvelopeBase'

@@ -15,6 +15,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,26 +28,34 @@ type EventWebhook struct {
 	URL       string
 	Secret    string
 	RuleID    string
+	Headers   map[string]string
 	Enabled   bool
 	CreatedAt time.Time
 }
 
 // webhookView is the public projection; it never carries the secret.
 type webhookView struct {
-	ID        string    `json:"id"`
-	URL       string    `json:"url"`
-	RuleID    string    `json:"rule_id"`
-	Enabled   bool      `json:"enabled"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	URL         string    `json:"url"`
+	RuleID      string    `json:"rule_id"`
+	HeaderNames []string  `json:"header_names,omitempty"`
+	Enabled     bool      `json:"enabled"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 func webhookViewOf(wh EventWebhook) webhookView {
+	names := make([]string, 0, len(wh.Headers))
+	for name := range wh.Headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
 	return webhookView{
-		ID:        wh.ID,
-		URL:       wh.URL,
-		RuleID:    wh.RuleID,
-		Enabled:   wh.Enabled,
-		CreatedAt: wh.CreatedAt,
+		ID:          wh.ID,
+		URL:         wh.URL,
+		RuleID:      wh.RuleID,
+		HeaderNames: names,
+		Enabled:     wh.Enabled,
+		CreatedAt:   wh.CreatedAt,
 	}
 }
 
@@ -76,6 +86,44 @@ func newWebhookSecret() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+var webhookHeaderName = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+
+// normalizeWebhookHeaders canonicalizes custom delivery headers and rejects
+// values that could break the HTTP request or spoof bridge signatures.
+func normalizeWebhookHeaders(headers map[string]string) (map[string]string, error) {
+	if len(headers) > 10 {
+		return nil, fmt.Errorf("at most 10 custom headers are allowed")
+	}
+	normalized := make(map[string]string, len(headers))
+	for rawName, value := range headers {
+		name := http.CanonicalHeaderKey(strings.TrimSpace(rawName))
+		if !webhookHeaderName.MatchString(name) {
+			return nil, fmt.Errorf("invalid header name %q", rawName)
+		}
+		if strings.ContainsAny(value, "\r\n") || len(value) > 4096 {
+			return nil, fmt.Errorf("invalid value for header %s", name)
+		}
+		switch name {
+		case "Host", "Content-Length", "Connection", "Transfer-Encoding", "Content-Type",
+			"X-Whatsapp-Signature", "X-Whatsapp-Event-Id":
+			return nil, fmt.Errorf("header %s is reserved", name)
+		}
+		normalized[name] = value
+	}
+	return normalized, nil
+}
+
+func webhookHeadersJSON(headers map[string]string) string {
+	if len(headers) == 0 {
+		return "{}"
+	}
+	encoded, err := json.Marshal(headers)
+	if err != nil {
+		return "{}"
+	}
+	return string(encoded)
 }
 
 // validateWebhookURL blocks SSRF targets: only http(s) hosts resolving to
@@ -125,7 +173,7 @@ func isRestrictedIP(ip net.IP) bool {
 // listWebhooks returns every webhook of the tenant in creation order.
 func (store *MessageStore) listWebhooks() ([]EventWebhook, error) {
 	rows, err := store.db.Query(`
-		SELECT id, url, secret, rule_id, enabled, created_at
+		SELECT id, url, secret, rule_id, headers_json, enabled, created_at
 		FROM event_webhooks ORDER BY created_at ASC, id ASC
 	`)
 	if err != nil {
@@ -147,7 +195,7 @@ func (store *MessageStore) listWebhooks() ([]EventWebhook, error) {
 // getWebhook loads one webhook; the boolean reports existence.
 func (store *MessageStore) getWebhook(id string) (EventWebhook, bool, error) {
 	row := store.db.QueryRow(`
-		SELECT id, url, secret, rule_id, enabled, created_at
+		SELECT id, url, secret, rule_id, headers_json, enabled, created_at
 		FROM event_webhooks WHERE id = ?
 	`, id)
 	wh, err := scanWebhook(row)
@@ -162,22 +210,32 @@ func (store *MessageStore) getWebhook(id string) (EventWebhook, bool, error) {
 
 func scanWebhook(row rowScanner) (EventWebhook, error) {
 	var wh EventWebhook
-	err := row.Scan(&wh.ID, &wh.URL, &wh.Secret, &wh.RuleID, &wh.Enabled, &wh.CreatedAt)
-	return wh, err
+	var headersJSON string
+	err := row.Scan(&wh.ID, &wh.URL, &wh.Secret, &wh.RuleID, &headersJSON, &wh.Enabled, &wh.CreatedAt)
+	if err != nil {
+		return wh, err
+	}
+	wh.Headers = map[string]string{}
+	if headersJSON != "" && headersJSON != "{}" {
+		if err := json.Unmarshal([]byte(headersJSON), &wh.Headers); err != nil {
+			return wh, err
+		}
+	}
+	return wh, nil
 }
 
 func (store *MessageStore) insertWebhook(wh EventWebhook) error {
 	_, err := store.db.Exec(`
-		INSERT INTO event_webhooks (id, url, secret, rule_id, enabled, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)
-	`, wh.ID, wh.URL, wh.Secret, wh.RuleID, wh.Enabled, wh.CreatedAt)
+		INSERT INTO event_webhooks (id, url, secret, rule_id, headers_json, enabled, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, wh.ID, wh.URL, wh.Secret, wh.RuleID, webhookHeadersJSON(wh.Headers), wh.Enabled, wh.CreatedAt)
 	return err
 }
 
 func (store *MessageStore) updateWebhook(wh EventWebhook) (bool, error) {
 	result, err := store.db.Exec(`
-		UPDATE event_webhooks SET url = ?, rule_id = ?, enabled = ? WHERE id = ?
-	`, wh.URL, wh.RuleID, wh.Enabled, wh.ID)
+		UPDATE event_webhooks SET url = ?, rule_id = ?, headers_json = ?, enabled = ? WHERE id = ?
+	`, wh.URL, wh.RuleID, webhookHeadersJSON(wh.Headers), wh.Enabled, wh.ID)
 	if err != nil {
 		return false, err
 	}
@@ -373,6 +431,9 @@ func deliverEvent(ctx context.Context, wh EventWebhook, tenantID string, seq int
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-WhatsApp-Event-Id", tenantID+":"+strconv.FormatInt(seq, 10))
 	req.Header.Set("X-WhatsApp-Signature", eventSignature(wh.Secret, body))
+	for name, value := range wh.Headers {
+		req.Header.Set(name, value)
+	}
 
 	resp, err := webhookHTTPClient.Do(req)
 	if err != nil {

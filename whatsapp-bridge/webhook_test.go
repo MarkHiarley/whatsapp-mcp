@@ -483,3 +483,51 @@ func countEvents(t *testing.T, store *MessageStore) int {
 	}
 	return count
 }
+
+func TestDeliverEventSendsCustomHeaders(t *testing.T) {
+	var got http.Header
+	var body []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		body, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	status, err := deliverEvent(context.Background(), EventWebhook{
+		URL:     server.URL,
+		Secret:  "secret",
+		Headers: map[string]string{"X-Api-Key": "abc", "Authorization": "Bearer token"},
+	}, "tenant-1", 7, []byte(`{"content":"oi"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status == nil || *status != http.StatusOK {
+		t.Fatalf("unexpected status: %v", status)
+	}
+	if got.Get("X-Api-Key") != "abc" {
+		t.Fatalf("missing custom header, got %v", got)
+	}
+	if got.Get("Authorization") != "Bearer token" {
+		t.Fatalf("missing authorization header, got %v", got)
+	}
+	if got.Get("X-Whatsapp-Signature") != eventSignature("secret", body) {
+		t.Fatal("signature header was altered")
+	}
+}
+
+func TestNormalizeWebhookHeadersRejectsUnsafeValues(t *testing.T) {
+	for name, headers := range map[string]map[string]string{
+		"newline":  {"X-Api-Key": "abc\nInjected: 1"},
+		"reserved": {"Host": "evil.example"},
+		"invalid":  {"Bad Name": "value"},
+		"too many": {
+			"X-1": "1", "X-2": "1", "X-3": "1", "X-4": "1", "X-5": "1", "X-6": "1",
+			"X-7": "1", "X-8": "1", "X-9": "1", "X-10": "1", "X-11": "1",
+		},
+	} {
+		if _, err := normalizeWebhookHeaders(headers); err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+	}
+}

@@ -1,0 +1,114 @@
+name: Deploy panel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "panel/**"
+      - "deploy/vps/**"
+      - ".github/workflows/deploy-panel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-panel
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push bridge
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/markhiarley/whatsapp-bridge:latest
+            ghcr.io/markhiarley/whatsapp-bridge:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push panel
+        uses: docker/build-push-action@v6
+        with:
+          context: ./panel
+          target: runner
+          push: true
+          tags: |
+            ghcr.io/markhiarley/whatsapp-panel:latest
+            ghcr.io/markhiarley/whatsapp-panel:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push migrations
+        uses: docker/build-push-action@v6
+        with:
+          context: ./panel
+          target: migrate
+          push: true
+          tags: |
+            ghcr.io/markhiarley/whatsapp-panel-migrate:latest
+            ghcr.io/markhiarley/whatsapp-panel-migrate:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy compose to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22022 }}
+          source: "deploy/vps/docker-compose.yml"
+          target: "/root/whatsapp-panel"
+          strip_components: 2
+
+      - name: Deploy on VPS
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22022 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /root/whatsapp-panel
+            test -f .env || { echo "missing /root/whatsapp-panel/.env"; exit 1; }
+            export PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-panel:latest
+            export PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-panel-migrate:latest
+            export BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-bridge:latest
+            echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            docker compose pull panel-db panel-migrate panel whatsapp-mcp
+            docker compose up -d --wait panel-db
+            docker compose run --rm --no-deps panel-migrate
+            docker compose up -d whatsapp-mcp
+            docker compose up -d panel
+            docker logout ghcr.io
+            docker image prune -f --filter "until=168h"

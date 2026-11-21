@@ -35,13 +35,19 @@ type messageListItem struct {
 }
 
 type tenantStats struct {
-	TenantID        string       `json:"tenant_id"`
-	Status          TenantStatus `json:"status"`
-	Chats           int          `json:"chats"`
-	Messages        int          `json:"messages"`
-	Events          int          `json:"events"`
-	Keys            int          `json:"keys"`
-	LastMessageTime *time.Time   `json:"last_message_time,omitempty"`
+	TenantID        string         `json:"tenant_id"`
+	Status          TenantStatus   `json:"status"`
+	Chats           int            `json:"chats"`
+	Messages        int            `json:"messages"`
+	Events          int            `json:"events"`
+	Keys            int            `json:"keys"`
+	LastMessageTime *time.Time     `json:"last_message_time,omitempty"`
+	MessagesByDay   []dailyMessage `json:"messages_by_day"`
+}
+
+type dailyMessage struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
 }
 
 func clampInt(value, min, max int) int {
@@ -319,6 +325,34 @@ func parseSQLiteTime(raw string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+func dailyMessages(db *sql.DB) []dailyMessage {
+	const days = 14
+	counts := make(map[string]int, days)
+	rows, err := db.Query(`
+		SELECT date(timestamp) AS day, COUNT(*)
+		FROM messages
+		WHERE timestamp >= datetime('now', '-13 days')
+		GROUP BY day`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var day string
+			var count int
+			if err := rows.Scan(&day, &count); err == nil {
+				counts[day] = count
+			}
+		}
+	}
+
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	series := make([]dailyMessage, 0, days)
+	for i := days - 1; i >= 0; i-- {
+		date := today.AddDate(0, 0, -i).Format("2006-01-02")
+		series = append(series, dailyMessage{Date: date, Count: counts[date]})
+	}
+	return series
+}
+
 func (a *tenantAPI) handleTenantStats(w http.ResponseWriter, r *http.Request, p principal) {
 	rt, ok := a.runtimeFor(w, p, r.PathValue("tenant"))
 	if !ok {
@@ -342,6 +376,7 @@ func (a *tenantAPI) handleTenantStats(w http.ResponseWriter, r *http.Request, p 
 	if parsed, ok := parseSQLiteTime(last.String); ok {
 		stats.LastMessageTime = &parsed
 	}
+	stats.MessagesByDay = dailyMessages(rt.store.db)
 	if tenant, ok := a.m.tenants.Get(rt.tenant.ID); ok {
 		for _, key := range tenant.Keys {
 			if key.RevokedAt == nil {
