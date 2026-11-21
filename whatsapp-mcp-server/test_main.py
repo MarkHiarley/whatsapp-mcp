@@ -5,11 +5,13 @@ Uso: uv run python test_main.py
 
 import sys
 import os
+import json
 import sqlite3
 import tempfile
 sys.path.insert(0, os.path.dirname(__file__))
 
 from datetime import datetime, timezone, timedelta
+from unittest import mock
 import whatsapp
 from main import _contract
 from whatsapp import Message
@@ -182,6 +184,150 @@ def test_lid_identity_aliases():
     print("  ✅ telefone e LID compartilham a mesma identidade e chat")
 
 
+class FakeResponse:
+    """Imita o retorno de requests com o envelope {success, data, error}."""
+    def __init__(self, payload, status_code=200):
+        self._payload = payload
+        self.status_code = status_code
+        self.text = json.dumps(payload)
+
+    def json(self):
+        return self._payload
+
+
+EVENT_SAMPLE = {
+    "seq": 5, "message_id": "m5", "chat_jid": "5511999999999@s.whatsapp.net",
+    "is_group": False, "is_from_me": False, "mentioned_me": False,
+    "content": "oi", "timestamp": "2026-08-18T20:00:00Z", "created_at": "2026-08-18T20:00:01Z",
+}
+
+
+def test_tenant_db_path_por_tenant():
+    """default usa <store>/messages.db; outros tenants usam <store>/tenants/<id>/messages.db."""
+    store = os.path.abspath("store-de-teste")
+    assert whatsapp.messages_db_path(store, "default") == os.path.join(store, "messages.db")
+    assert whatsapp.messages_db_path(store, "cliente-x") == os.path.join(
+        store, "tenants", "cliente-x", "messages.db")
+    print("  ✅ caminho do DB segue o tenant (default legado preservado)")
+
+
+def test_tenant_id_invalido_falha_com_mensagem_clara():
+    """Ids fora de ^[a-z0-9][a-z0-9-]{1,31}$ (ex.: path traversal) devem levantar ValueError."""
+    for bad in ["../x", "A", "a", "-abc", "cliente_x", "Cliente", "", "a" * 33, "x/y"]:
+        try:
+            whatsapp.validate_tenant_id(bad)
+        except ValueError as e:
+            assert "WHATSAPP_TENANT_ID" in str(e), str(e)
+        else:
+            raise AssertionError(f"tenant {bad!r} deveria ser rejeitado")
+    assert whatsapp.validate_tenant_id("a" * 32) == "a" * 32
+    assert whatsapp.validate_tenant_id("cliente-x") == "cliente-x"
+    print("  ✅ tenant inválido é rejeitado com mensagem clara")
+
+
+def test_envio_usa_url_tenantizada():
+    """send_message deve chamar {base}/tenants/<id>/send, com timeout explícito."""
+    captured = {}
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        captured["timeout"] = kwargs.get("timeout")
+        return FakeResponse({"success": True, "data": {"message": "ok"}})
+
+    with mock.patch.multiple(whatsapp, WHATSAPP_TENANT_ID="cliente-x", WHATSAPP_API_TOKEN="secret",
+                             WHATSAPP_API_BASE_URL="http://bridge.local/api/v1"), \
+            mock.patch.object(whatsapp.requests, "post", fake_post):
+        ok, msg = whatsapp.send_message("5511999999999", "oi")
+
+    assert ok and msg == "ok", (ok, msg)
+    assert captured["url"] == "http://bridge.local/api/v1/tenants/cliente-x/send", captured["url"]
+    assert captured["timeout"] == whatsapp.REQUEST_TIMEOUT
+    assert whatsapp.tenant_api_url("http://h/api/v1/", "default", "/events") == "http://h/api/v1/tenants/default/events"
+    print("  ✅ envio usa /tenants/<id>/send com timeout")
+
+
+def test_bridge_response_eventos_devolve_lista():
+    """Envelope de /events deve ser lido como lista de eventos."""
+    payload = {"success": True, "data": {"events": [EVENT_SAMPLE], "next_after": 5}, "error": None}
+    ok, data = whatsapp._bridge_response(FakeResponse(payload))
+    assert ok
+    assert isinstance(data["events"], list) and data["events"][0]["seq"] == 5
+    print("  ✅ envelope de eventos é interpretado como lista")
+
+
+def test_list_events_limita_a_500():
+    """limit é restrito a 1..500 antes de ir para a API."""
+    captured = []
+
+    def fake_get(url, params=None, **kwargs):
+        captured.append((url, dict(params or {}), kwargs.get("timeout")))
+        return FakeResponse({"success": True, "data": {"events": [EVENT_SAMPLE], "next_after": 5}})
+
+    with mock.patch.multiple(whatsapp, WHATSAPP_TENANT_ID="cliente-x", WHATSAPP_API_TOKEN="secret",
+                             WHATSAPP_API_BASE_URL="http://bridge.local/api/v1"), \
+            mock.patch.object(whatsapp.requests, "get", fake_get):
+        events = whatsapp.list_events(after=3, rule="r1", limit=9999)
+        whatsapp.list_events(limit=0)
+
+    assert isinstance(events, list) and events == [EVENT_SAMPLE]
+    url, params, timeout = captured[0]
+    assert url == "http://bridge.local/api/v1/tenants/cliente-x/events"
+    assert params == {"after": 3, "limit": 500, "rule": "r1"}, params
+    assert timeout == whatsapp.REQUEST_TIMEOUT
+    assert captured[1][1]["limit"] == 1
+    print("  ✅ list_events devolve lista e limita limit a 1..500")
+
+
+def test_wait_for_events_retorna_no_primeiro_lote():
+    """Com o primeiro lote preenchido, deve retornar sem dormir nem repetir a chamada."""
+    calls = []
+
+    def fake_list_events(after=0, rule=None, limit=50):
+        calls.append(after)
+        return [EVENT_SAMPLE]
+
+    with mock.patch.object(whatsapp, "list_events", fake_list_events), \
+            mock.patch.object(whatsapp.time, "sleep", side_effect=AssertionError("não deveria dormir")):
+        events = whatsapp.wait_for_events(after=4, timeout=30, poll=1.0)
+
+    assert events == [EVENT_SAMPLE]
+    assert calls == [4], calls
+    print("  ✅ wait_for_events retorna imediatamente com lote preenchido")
+
+
+def test_wait_for_events_poll_e_timeout():
+    """Dorme no máximo `poll` entre tentativas e devolve [] quando o prazo expira."""
+    responses = [[], [EVENT_SAMPLE]]
+    sleeps = []
+
+    with mock.patch.object(whatsapp, "list_events", lambda after=0, rule=None, limit=50: responses.pop(0)), \
+            mock.patch.object(whatsapp.time, "sleep", lambda s: sleeps.append(s)):
+        events = whatsapp.wait_for_events(after=0, timeout=30, poll=0.25)
+    assert events == [EVENT_SAMPLE]
+    assert sleeps and all(s <= 0.25 for s in sleeps), sleeps
+
+    calls = []
+
+    def empty_list_events(after=0, rule=None, limit=50):
+        calls.append(1)
+        return []
+
+    with mock.patch.object(whatsapp, "list_events", empty_list_events), \
+            mock.patch.object(whatsapp.time, "sleep", lambda s: None):
+        assert whatsapp.wait_for_events(timeout=0.0, poll=1.0) == []
+    assert len(calls) == 1
+    print("  ✅ wait_for_events respeita poll e timeout")
+
+
+def test_ack_rejeita_consumer_id_invalido():
+    """consumer_id entra no path: valores com '/' ou '..' são recusados sem chamar a API."""
+    with mock.patch.object(whatsapp.requests, "post", side_effect=AssertionError("não deveria chamar a API")):
+        for bad in ["../x", "a/b", "", "-x", "a" * 65]:
+            ok, msg = whatsapp.ack_events(bad, "rule-1", 1)
+            assert not ok and "consumer_id" in msg, (bad, msg)
+    print("  ✅ ack_events valida consumer_id antes de montar a URL")
+
+
 # ─── Rodar ───────────────────────────────────────────────────
 if __name__ == "__main__":
     print(f"\n🔍 Testes do WhatsApp MCP (fuso: {_tz_name})\n")
@@ -197,6 +343,14 @@ if __name__ == "__main__":
         test_bridge_response_contract,
         test_api_token_header,
         test_lid_identity_aliases,
+        test_tenant_db_path_por_tenant,
+        test_tenant_id_invalido_falha_com_mensagem_clara,
+        test_envio_usa_url_tenantizada,
+        test_bridge_response_eventos_devolve_lista,
+        test_list_events_limita_a_500,
+        test_wait_for_events_retorna_no_primeiro_lote,
+        test_wait_for_events_poll_e_timeout,
+        test_ack_rejeita_consumer_id_invalido,
     ]
     passed = 0
     for t in tests:
