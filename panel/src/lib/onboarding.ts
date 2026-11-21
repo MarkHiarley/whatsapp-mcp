@@ -3,9 +3,8 @@ import { randomUUID } from "node:crypto";
 
 import { db } from "@/db";
 import { member, organization, tenantCredentials } from "@/db/schema";
+import { BRIDGE_URL, bridgeHeaders } from "@/lib/bridge";
 import { encryptSecret } from "@/lib/crypto";
-
-const BRIDGE_URL = (process.env.BRIDGE_URL ?? "http://127.0.0.1:8080/api/v1").replace(/\/$/, "");
 
 type Envelope<T> = { success?: boolean; data?: T; error?: { code?: string; message?: string } | null };
 type TenantCreation = { tenant: { id: string; label: string }; token: string };
@@ -17,7 +16,7 @@ async function bridgeRequest<T>(path: string, token: string, init?: RequestInit)
     const response = await fetch(`${BRIDGE_URL}${path}`, {
       ...init,
       headers: {
-        Authorization: `Bearer ${token}`,
+        ...bridgeHeaders(token),
         ...(init?.body ? { "Content-Type": "application/json" } : {}),
         ...init?.headers,
       },
