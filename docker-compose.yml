@@ -12,3 +12,60 @@ services:
       # Optional. Enables /api/v1/tenants provisioning; never distribute it to clients.
       WHATSAPP_ADMIN_TOKEN: ${WHATSAPP_ADMIN_TOKEN:-}
     restart: unless-stopped
+
+  panel-db:
+    image: postgres:17-alpine
+    container_name: whatsapp-panel-db
+    environment:
+      POSTGRES_USER: panel
+      POSTGRES_PASSWORD: ${PANEL_DB_PASSWORD:-panel}
+      POSTGRES_DB: panel
+    volumes:
+      - panel-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U panel -d panel"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  panel-migrate:
+    build:
+      context: ./panel
+      target: migrate
+    container_name: whatsapp-panel-migrate
+    depends_on:
+      panel-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://panel:${PANEL_DB_PASSWORD:-panel}@panel-db:5432/panel
+    restart: "no"
+
+  panel:
+    build: ./panel
+    container_name: whatsapp-panel
+    depends_on:
+      panel-db:
+        condition: service_healthy
+      panel-migrate:
+        condition: service_completed_successfully
+      whatsapp-mcp:
+        condition: service_started
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      BRIDGE_URL: http://whatsapp-mcp:8080/api/v1
+      BRIDGE_ADMIN_TOKEN: ${WHATSAPP_ADMIN_TOKEN:-}
+      DATABASE_URL: postgres://panel:${PANEL_DB_PASSWORD:-panel}@panel-db:5432/panel
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?configure BETTER_AUTH_SECRET in .env}
+      PANEL_ENCRYPTION_KEY: ${PANEL_ENCRYPTION_KEY:?configure PANEL_ENCRYPTION_KEY in .env}
+      PRIMER_ADMIN: ${PRIMER_ADMIN:-}
+      PANEL_ADMIN_EMAILS: ${PANEL_ADMIN_EMAILS:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?configure GOOGLE_CLIENT_ID in .env}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?configure GOOGLE_CLIENT_SECRET in .env}
+      NEXT_TELEMETRY_DISABLED: "1"
+    restart: unless-stopped
+
+volumes:
+  panel-db:
