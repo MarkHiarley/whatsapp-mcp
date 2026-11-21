@@ -1,7 +1,7 @@
 # WhatsApp MCP Server
 
 Connect WhatsApp to AI agents through the **Model Context Protocol (MCP)**.
-This fork includes an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, and a multi-tenant bridge (one process, many WhatsApp numbers) with durable events and webhooks.
+Originally created by [Luke Harries (@lharries)](https://github.com/lharries); maintained and substantially rewritten by [Hiarley Costa (@MarkHiarley)](https://github.com/MarkHiarley) since the upstream project stalled in July 2025. This repository ships an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, a multi-tenant bridge (one process, many WhatsApp numbers) with durable events and signed webhooks, a Next.js control panel, and VPS deployment automation. See [Credits](#credits) for the full split of authorship.
 
 
 ## Docker (recommended)
@@ -59,6 +59,14 @@ Paths are relative to the store directory. In Docker, the host's `./data` is mou
 | `WHATSAPP_STORE_DIR` | bridge | No | Base directory for `tenants.json`, databases, and media. Defaults to `store`. |
 | `WHATSAPP_TENANT_ID` | MCP | No | Tenant whose `whatsapp.db` and `messages.db` the MCP reads. Defaults to `default`. |
 | `WHATSAPP_API_BASE_URL` | MCP | No | Base URL of the bridge API the MCP calls. Defaults to `http://localhost:8080/api/v1`. |
+| `WHATSAPP_MCP_READ_ONLY` | MCP | No | `1` hides every write tool; the agent only sees read tools. |
+| `WHATSAPP_MCP_ALLOW_DIRECT_SEND` | MCP | No | `1` exposes the legacy `send_message`, `send_file` and `send_audio_message` (immediate send, no approval). Default is off. |
+| `WHATSAPP_MCP_APPROVAL_TTL_SECONDS` | MCP | No | Lifetime of a draft approval, 30–3600 seconds. Default `120`. |
+| `WHATSAPP_MCP_STATE_DIR` | MCP | No | Base for approvals, audit and outbox. Default `<store>/mcp`. |
+| `WHATSAPP_MCP_OUTBOX_DIR` | MCP | No | Only files below this directory can be sent. Default `<store>/mcp/outbox`. |
+| `WHATSAPP_MCP_MAX_FILE_MB` | MCP | No | Maximum outbound file size, 1–100 MiB. Default `64`. |
+| `WHATSAPP_MCP_APPROVALS_DB` | MCP | No | SQLite file for one-use approvals. Default `<store>/mcp/approvals.db`. |
+| `WHATSAPP_MCP_AUDIT_LOG` | MCP | No | JSONL audit log. Default `<store>/mcp/audit.jsonl`. |
 | `WHATSAPP_WEBHOOK_ALLOW_PRIVATE` | bridge | No | Set to `1` only for local tests: allows webhook URLs that resolve to loopback/private IPs. Keep unset in production (SSRF guard). |
 | `TZ` | bridge, MCP | No | Timezone for timestamps. Compose sets `America/Sao_Paulo`. |
 | `PORT` | bridge | No | HTTP port of the API. Defaults to `8080`. |
@@ -267,7 +275,14 @@ Run one MCP server entry per tenant. Each entry uses a tenant key and sets `WHAT
 }
 ```
 
-The original 12 tools are unchanged: `search_contacts`, `list_messages`, `list_chats`, `get_chat`, `get_direct_chat_by_contact`, `get_contact_chats`, `get_last_interaction`, `get_message_context`, `send_message`, `send_file`, `send_audio_message`, and `download_media`. Their arguments and return shapes do not change. Four event tools were added: `list_events`, `wait_for_events`, `list_rules`, and `ack_events`.
+Read tools: `search_contacts`, `list_messages`, `list_chats`, `get_chat`, `get_direct_chat_by_contact`, `get_contact_chats`, `get_last_interaction`, `get_message_context`, `download_media`, `list_events`, `wait_for_events` and `list_rules`.
+
+The default write flow is two-step and never sends on the first call:
+
+1. `draft_message`, `draft_file` or `draft_audio_message` returns an `approval_id`, the exact recipient and a preview. Nothing is sent.
+2. A human reviews the draft. `confirm_send(approval_id, confirm=true)` sends it once; the approval is bound to this tenant, expires (default 120 s), and cannot be reused.
+
+`confirm_send` is annotated as destructive, so MCP clients that support tool annotations must ask the user before invoking it. File sends are confined to `WHATSAPP_MCP_OUTBOX_DIR`; the SHA-256 is captured at draft time and re-checked before sending. `ack_events` is available in normal mode; `WHATSAPP_MCP_READ_ONLY=1` hides every write tool, including drafts and ack. The legacy immediate tools (`send_message`, `send_file`, `send_audio_message`) only exist when `WHATSAPP_MCP_ALLOW_DIRECT_SEND=1`.
 
 `WHATSAPP_TENANT_ID` selects which database the server reads (`store/tenants/<id>/messages.db`). `WHATSAPP_API_TOKEN` is the tenant key used for sending and downloading. Keep both values for the same tenant.
 
@@ -500,7 +515,24 @@ The panel is published at `127.0.0.1:3000`; the bridge remains internal (`127.0.
 
 ## Credits
 
-Original project created by [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). This fork preserves the original project credits and MIT license.
+**Original project:** [Luke Harries (@lharries)](https://github.com/lharries) — [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp), MIT. Upstream's last commit is from July 2025.
+
+**Current maintainer:** [Hiarley Costa (@MarkHiarley)](https://github.com/MarkHiarley) — maintenance and every feature below, since upstream went dormant.
+
+The original idea, the Go bridge skeleton, the Python MCP server, and the base tooling come from upstream. Everything else is new work added here after the upstream project stopped:
+
+- Multi-tenant bridge: one process, N WhatsApp numbers, per-tenant whatsmeow sessions, databases, and media; `default` keeps the legacy paths.
+- Authenticated REST API with durable events, HMAC-signed webhooks, and versioned contracts.
+- Next.js control panel: Google login, roles, encrypted keys per tenant, tenant auto-provisioning with an email allowlist, and a read API.
+- Docker Compose stack, GHCR images, and CI/CD that deploys the panel to a VPS.
+
+Numbers against upstream's last commit (`7d6a06d`):
+
+- 146 files changed, 31,989 insertions, 1,856 deletions.
+- 103 of those files are the panel, which did not exist upstream.
+- 40 of the 67 commits in this history are the maintainer's; 23 are upstream's, 4 came from outside contributors.
+
+The original copyright is retained in [LICENSE](LICENSE) as MIT requires, and the maintainer's modifications are copyrighted alongside it.
 
 ## License
 
