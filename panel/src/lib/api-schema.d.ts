@@ -577,6 +577,12 @@ export interface components {
             keys: number;
             /** Format: date-time */
             last_message_time?: string;
+            messages_by_day: components["schemas"]["DailyMessage"][];
+        };
+        DailyMessage: {
+            /** @example 2026-11-21 */
+            date: string;
+            count: number;
         };
         ChatListResponse: components["schemas"]["EnvelopeBase"] & {
             data?: {
