@@ -1,10 +1,8 @@
 # WhatsApp MCP Server
 
 Connect WhatsApp to AI agents through the **Model Context Protocol (MCP)**.
-This fork includes an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, and a multi-tenant design (one process, many WhatsApp numbers) with durable events and webhooks.
+This fork includes an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, and a multi-tenant bridge (one process, many WhatsApp numbers) with durable events and webhooks.
 
-> **Implementation status.** This branch freezes the multi-tenant and event contracts: [`contracts/openapi.yaml`](contracts/openapi.yaml) (source of truth for every route), [`contracts/tenants.example.json`](contracts/tenants.example.json), `whatsapp-bridge/tenant_contract.go`, and `whatsapp-bridge/event_contract.go`.
-> The running bridge currently serves only the legacy routes on the `default` tenant (`/api/v1/send`, `/api/v1/download`, `/api/send`, `/api/download`). The tenant, key, QR, rule, event, and webhook routes described below are the target contract and are not served yet. The MCP per-tenant setup depends on the same work.
 
 ## Docker (recommended)
 
@@ -54,15 +52,16 @@ Paths are relative to the store directory. In Docker, the host's `./data` is mou
 
 ### Environment variables
 
-| Variable | Used by | Required | Description | Status in this branch |
-|---|---|---|---|---|
-| `WHATSAPP_API_TOKEN` | bridge, MCP | Yes | Key of the `default` tenant. Also the MCP's credential when it points at the default tenant. | Implemented |
-| `WHATSAPP_ADMIN_TOKEN` | bridge | No | Admin token for provisioning (`/api/v1/tenants`). It can also manage keys and webhooks of any tenant. Each tenant key manages the keys and webhooks of its own tenant. If unset, `/tenants` routes return `503`. | Contract |
-| `WHATSAPP_STORE_DIR` | bridge | No | Base directory for `tenants.json`, databases, and media. | Contract |
-| `WHATSAPP_TENANT_ID` | MCP | No | Tenant whose `whatsapp.db` and `messages.db` the MCP reads. | Contract |
-| `WHATSAPP_API_BASE_URL` | MCP | No | Base URL of the bridge API the MCP calls. | Contract |
-| `TZ` | bridge, MCP | No | Timezone for timestamps. Compose sets `America/Sao_Paulo`. | Implemented |
-| `PORT` | bridge | No | HTTP port of the API. The container listens on `8080`, published on `127.0.0.1:8080`. | Contract |
+| Variable | Used by | Required | Description |
+|---|---|---|---|
+| `WHATSAPP_API_TOKEN` | bridge, MCP | Yes | Key of the `default` tenant. Also the MCP's credential when it points at the default tenant. |
+| `WHATSAPP_ADMIN_TOKEN` | bridge | No | Admin token for provisioning (`/api/v1/tenants`). It can also manage keys and webhooks of any tenant. Each tenant key manages the keys and webhooks of its own tenant. If unset, `/tenants` routes return `503`. |
+| `WHATSAPP_STORE_DIR` | bridge | No | Base directory for `tenants.json`, databases, and media. Defaults to `store`. |
+| `WHATSAPP_TENANT_ID` | MCP | No | Tenant whose `whatsapp.db` and `messages.db` the MCP reads. Defaults to `default`. |
+| `WHATSAPP_API_BASE_URL` | MCP | No | Base URL of the bridge API the MCP calls. Defaults to `http://localhost:8080/api/v1`. |
+| `WHATSAPP_WEBHOOK_ALLOW_PRIVATE` | bridge | No | Set to `1` only for local tests: allows webhook URLs that resolve to loopback/private IPs. Keep unset in production (SSRF guard). |
+| `TZ` | bridge, MCP | No | Timezone for timestamps. Compose sets `America/Sao_Paulo`. |
+| `PORT` | bridge | No | HTTP port of the API. Defaults to `8080`. |
 
 Generate both tokens with `openssl rand -hex 32`. Keep them in the local `.env` file only.
 
@@ -248,7 +247,7 @@ Run one MCP server entry per tenant. Each entry uses a tenant key and sets `WHAT
 }
 ```
 
-The 12 existing tools are unchanged: `search_contacts`, `list_messages`, `list_chats`, `get_chat`, `get_direct_chat_by_contact`, `get_contact_chats`, `get_last_interaction`, `get_message_context`, `send_message`, `send_file`, `send_audio_message`, and `download_media`. Their arguments and return shapes do not change.
+The original 12 tools are unchanged: `search_contacts`, `list_messages`, `list_chats`, `get_chat`, `get_direct_chat_by_contact`, `get_contact_chats`, `get_last_interaction`, `get_message_context`, `send_message`, `send_file`, `send_audio_message`, and `download_media`. Their arguments and return shapes do not change. Four event tools were added: `list_events`, `wait_for_events`, `list_rules`, and `ack_events`.
 
 `WHATSAPP_TENANT_ID` selects which database the server reads (`store/tenants/<id>/messages.db`). `WHATSAPP_API_TOKEN` is the tenant key used for sending and downloading. Keep both values for the same tenant.
 
