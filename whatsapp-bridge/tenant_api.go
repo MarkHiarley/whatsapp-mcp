@@ -62,6 +62,10 @@ func newTenantRESTHandler(m *TenantManager) http.Handler {
 	mux.HandleFunc("/api/v1/tenants/{tenant}/webhooks/{webhookId}", api.authenticate(api.handleTenantWebhook))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/webhooks/{webhookId}/secret", api.authenticate(api.handleTenantWebhookSecret))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/webhooks/{webhookId}/deliveries", api.authenticate(api.handleTenantWebhookDeliveries))
+	mux.HandleFunc("/api/v1/tenants/{tenant}/chats", api.authenticate(api.handleTenantChats))
+	mux.HandleFunc("/api/v1/tenants/{tenant}/chats/{jid}/messages", api.authenticate(api.handleTenantChatMessages))
+	mux.HandleFunc("/api/v1/tenants/{tenant}/media/{messageID}", api.authenticate(api.handleTenantMedia))
+	mux.HandleFunc("/api/v1/tenants/{tenant}/stats", api.authenticate(api.handleTenantStats))
 
 	mux.HandleFunc("/api/v1/send", api.authenticate(api.handleDefaultSend(true, false)))
 	mux.HandleFunc("/api/v1/download", api.authenticate(api.handleDefaultDownload(true, false)))
