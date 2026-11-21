@@ -9,6 +9,7 @@ from mcp.types import ToolAnnotations
 
 import approvals
 import audit
+import remote
 import whatsapp
 from whatsapp import (
     search_contacts as whatsapp_search_contacts,
@@ -127,8 +128,24 @@ def _contract(value):
     return value
 
 
-# Initialize FastMCP server
-mcp = FastMCP("whatsapp")
+# Initialize FastMCP server. HTTP mode requires bearer tokens and binds each
+# request to one tenant; STDIO keeps the local environment credentials.
+REMOTE = remote.transport() == "streamable-http"
+if REMOTE:
+    REMOTE_TOKENS = remote.load_tokens()
+    if not REMOTE_TOKENS:
+        raise RuntimeError("HTTP mode requires WHATSAPP_MCP_AUTH_TOKENS_FILE or WHATSAPP_MCP_AUTH_TOKENS")
+    mcp = remote.ScopedFastMCP(
+        "whatsapp",
+        host=remote.http_host(),
+        port=remote.http_port(),
+        streamable_http_path=remote.http_path(),
+        token_verifier=remote.TokenStore(REMOTE_TOKENS),
+        auth=remote.auth_settings(),
+        transport_security=remote.transport_security(),
+    )
+else:
+    mcp = FastMCP("whatsapp")
 
 READ_ONLY = os.getenv("WHATSAPP_MCP_READ_ONLY", "").lower() in {"1", "true", "yes", "on"}
 ALLOW_DIRECT_SEND = os.getenv("WHATSAPP_MCP_ALLOW_DIRECT_SEND", "").lower() in {"1", "true", "yes", "on"}
@@ -353,7 +370,7 @@ def send_audio_message(recipient: str, media_path: str) -> ActionResult:
     }
 
 def _tenant_id() -> str:
-    return whatsapp.WHATSAPP_TENANT_ID
+    return whatsapp.current_tenant()
 
 
 def _draft_dto(approval: dict, preview: str) -> DraftDTO:
@@ -544,17 +561,16 @@ def ack_events(consumer_id: str, rule_id: str, seq: int) -> ActionResult:
 
 if ALLOW_DIRECT_SEND and not READ_ONLY:
     # Opt-in legacy tools: they send immediately and bypass the approval flow.
-    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_message))
-    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_file))
-    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_audio_message))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_message, required_scope="write"))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_file, required_scope="write"))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_audio_message, required_scope="write"))
 
 if not READ_ONLY:
-    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_message))
-    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_file))
-    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_audio_message))
-    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(confirm_send))
-    mcp.tool(annotations=CURSOR_ANNOTATIONS)(audit.audited(ack_events))
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_message, required_scope="write"))
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_file, required_scope="write"))
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_audio_message, required_scope="write"))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(confirm_send, required_scope="write"))
+    mcp.tool(annotations=CURSOR_ANNOTATIONS)(audit.audited(ack_events, required_scope="write"))
 
 if __name__ == "__main__":
-    # Initialize and run the server
-    mcp.run(transport='stdio')
+    mcp.run(transport="streamable-http" if REMOTE else "stdio")

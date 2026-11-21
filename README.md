@@ -59,6 +59,14 @@ Paths are relative to the store directory. In Docker, the host's `./data` is mou
 | `WHATSAPP_STORE_DIR` | bridge | No | Base directory for `tenants.json`, databases, and media. Defaults to `store`. |
 | `WHATSAPP_TENANT_ID` | MCP | No | Tenant whose `whatsapp.db` and `messages.db` the MCP reads. Defaults to `default`. |
 | `WHATSAPP_API_BASE_URL` | MCP | No | Base URL of the bridge API the MCP calls. Defaults to `http://localhost:8080/api/v1`. |
+| `WHATSAPP_MCP_TRANSPORT` | MCP | No | `stdio` (default) or `streamable-http`. The HTTP endpoint is `/mcp`. |
+| `WHATSAPP_MCP_HTTP_HOST` | MCP | No | Bind address in HTTP mode. Default `127.0.0.1`. |
+| `WHATSAPP_MCP_HTTP_PORT` | MCP | No | HTTP port. Default `8765`. |
+| `WHATSAPP_MCP_HTTP_PATH` | MCP | No | MCP endpoint path. Default `/mcp`. |
+| `WHATSAPP_MCP_PUBLIC_URL` | MCP | No | Public base URL used in OAuth metadata. Default `http://<host>:<port>`. |
+| `WHATSAPP_MCP_AUTH_TOKENS_FILE` | MCP | HTTP | JSON token file; must be mode `600`. |
+| `WHATSAPP_MCP_AUTH_TOKENS` | MCP | HTTP | Inline JSON alternative to the token file (avoid in production). |
+| `WHATSAPP_MCP_ALLOWED_HOSTS` | MCP | No | Comma-separated Host values accepted by DNS-rebinding protection. |
 | `WHATSAPP_MCP_READ_ONLY` | MCP | No | `1` hides every write tool; the agent only sees read tools. |
 | `WHATSAPP_MCP_ALLOW_DIRECT_SEND` | MCP | No | `1` exposes the legacy `send_message`, `send_file` and `send_audio_message` (immediate send, no approval). Default is off. |
 | `WHATSAPP_MCP_APPROVAL_TTL_SECONDS` | MCP | No | Lifetime of a draft approval, 30–3600 seconds. Default `120`. |
@@ -287,6 +295,46 @@ The default write flow is two-step and never sends on the first call:
 `WHATSAPP_TENANT_ID` selects which database the server reads (`store/tenants/<id>/messages.db`). `WHATSAPP_API_TOKEN` is the tenant key used for sending and downloading. Keep both values for the same tenant.
 
 The `-w /app/whatsapp-mcp-server` argument is required so that `main.py` resolves its imports, as in the legacy configuration below.
+
+### Remote MCP over HTTP (`/mcp`)
+
+For remote agents, run the MCP server with Streamable HTTP and a bearer token per tenant/role:
+
+```bash
+WHATSAPP_MCP_TRANSPORT=streamable-http \
+WHATSAPP_MCP_HTTP_HOST=127.0.0.1 \
+WHATSAPP_MCP_HTTP_PORT=8765 \
+WHATSAPP_MCP_PUBLIC_URL=https://mcp.example.com \
+WHATSAPP_MCP_AUTH_TOKENS_FILE=/etc/whatsapp-mcp/tokens.json \
+WHATSAPP_STORE_DIR=/app/whatsapp-bridge/store \
+WHATSAPP_API_BASE_URL=http://whatsapp-mcp:8080/api/v1 \
+python main.py
+```
+
+The endpoint is `https://mcp.example.com/mcp`. Put a TLS-terminating proxy in front; the process should bind to loopback or a private interface.
+
+`tokens.json` (mode `600`):
+
+```json
+{
+  "tokens": {
+    "<bearer-token-do-agente>": {
+      "tenant": "cliente-x",
+      "api_token": "<tenant-key-do-bridge>",
+      "scopes": ["read"],
+      "client_id": "agent-read"
+    }
+  }
+}
+```
+
+- `read` tokens see only read tools; `write` adds drafts, `confirm_send`, ack and (if enabled) direct send.
+- The tenant and the bridge key come from the token, never from the model or a header.
+- `tools/list` is filtered by scope and every `tools/call` is re-checked.
+- Rotating or revoking a token means editing the file and restarting the process (no hot reload yet).
+- `WHATSAPP_MCP_READ_ONLY=1` still hides all writes globally.
+
+The default remains `stdio`; existing local MCP entries do not need to change.
 
 ### Legacy routes
 

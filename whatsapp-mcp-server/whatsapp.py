@@ -1,3 +1,4 @@
+import contextvars
 import sqlite3
 from datetime import datetime, timezone, timedelta
 import time
@@ -57,16 +58,62 @@ MESSAGES_DB_PATH = messages_db_path(WHATSAPP_STORE_DIR, WHATSAPP_TENANT_ID)
 WHATSAPP_API_BASE_URL = (os.environ.get("WHATSAPP_API_BASE_URL") or DEFAULT_API_BASE_URL).rstrip("/")
 WHATSAPP_API_TOKEN = os.environ.get("WHATSAPP_API_TOKEN", "")
 
+# One MCP process can serve multiple tenants over HTTP. The tenant and bridge
+# token are bound per request from the authenticated AccessToken claims.
+_TENANT_CONTEXT = contextvars.ContextVar("whatsapp_tenant", default=WHATSAPP_TENANT_ID)
+_API_TOKEN_CONTEXT = contextvars.ContextVar("whatsapp_api_token", default=WHATSAPP_API_TOKEN)
+_TENANT_BOUND = contextvars.ContextVar("whatsapp_tenant_bound", default=False)
+
+
+def current_tenant() -> str:
+    return _TENANT_CONTEXT.get() if _TENANT_BOUND.get() else WHATSAPP_TENANT_ID
+
+
+def current_api_token() -> str:
+    return _API_TOKEN_CONTEXT.get() if _TENANT_BOUND.get() else WHATSAPP_API_TOKEN
+
+
+def current_messages_db_path() -> str:
+    if _TENANT_BOUND.get():
+        return messages_db_path(WHATSAPP_STORE_DIR, current_tenant())
+    return MESSAGES_DB_PATH
+
+
+def bind_request(tenant_id: str, api_token: str) -> None:
+    _TENANT_CONTEXT.set(validate_tenant_id(tenant_id))
+    _API_TOKEN_CONTEXT.set(api_token)
+    _TENANT_BOUND.set(True)
+
+
+def bind_from_access_token() -> None:
+    """Bind tenant/token from the MCP bearer token when one is present.
+
+    STDIO mode has no access token and keeps the environment credentials.
+    """
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+        token = get_access_token()
+    except Exception:
+        token = None
+    if token is None:
+        return
+    claims = token.claims or {}
+    tenant_id = claims.get("tenant")
+    api_token = claims.get("api_token")
+    if tenant_id and api_token:
+        bind_request(str(tenant_id), str(api_token))
+
 
 def _api_headers():
-    if not WHATSAPP_API_TOKEN:
+    token = current_api_token()
+    if not token:
         raise RuntimeError("WHATSAPP_API_TOKEN is required")
-    return {"Authorization": f"Bearer {WHATSAPP_API_TOKEN}"}
+    return {"Authorization": f"Bearer {token}"}
 
 
 def _tenant_api(suffix: str) -> str:
-    """URL tenantizada: {base}/tenants/{tenant}/{suffix}. Usa sempre o tenant do processo."""
-    return tenant_api_url(WHATSAPP_API_BASE_URL, WHATSAPP_TENANT_ID, suffix)
+    """URL tenantizada: {base}/tenants/{tenant}/{suffix} do request atual."""
+    return tenant_api_url(WHATSAPP_API_BASE_URL, current_tenant(), suffix)
 
 
 def _bridge_response(response):
@@ -80,7 +127,7 @@ def _bridge_response(response):
 def _connect():
     # mode=rw: abre apenas DB existente (sem criar arquivo vazio em caminho errado).
     # Leitura direta; escrita sempre pela API.
-    uri = f"file:{quote(os.path.abspath(MESSAGES_DB_PATH))}?mode=rw"
+    uri = f"file:{quote(os.path.abspath(current_messages_db_path()))}?mode=rw"
     conn = sqlite3.connect(uri, uri=True)
     conn.execute("PRAGMA busy_timeout=5000")
     return conn
