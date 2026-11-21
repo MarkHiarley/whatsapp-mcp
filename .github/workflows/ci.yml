@@ -34,6 +34,9 @@ jobs:
           cd whatsapp-bridge && go test ./...
           cd ../whatsapp-mcp-server && uv run python test_main.py
 
+      - name: OpenAPI contract
+        run: uv run --with pyyaml python -c "import yaml; yaml.safe_load(open('contracts/openapi.yaml'))"
+
       - name: Type checks
         run: |
           cd whatsapp-bridge && go vet ./...

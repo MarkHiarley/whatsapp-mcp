@@ -9,4 +9,6 @@ services:
     environment:
       TZ: America/Sao_Paulo
       WHATSAPP_API_TOKEN: ${WHATSAPP_API_TOKEN:?configure WHATSAPP_API_TOKEN in .env}
+      # Optional. Enables /api/v1/tenants provisioning; never distribute it to clients.
+      WHATSAPP_ADMIN_TOKEN: ${WHATSAPP_ADMIN_TOKEN:-}
     restart: unless-stopped

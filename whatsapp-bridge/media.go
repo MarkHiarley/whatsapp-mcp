@@ -270,8 +270,22 @@ func (d *MediaDownloader) GetMediaType() whatsmeow.MediaType {
 	return d.MediaType
 }
 
+// sanitizeChatDir turns a chat JID into a safe single directory name.
+func sanitizeChatDir(chatJID string) string {
+	replacer := strings.NewReplacer(":", "_", "/", "_", "\\", "_", "\x00", "_")
+	name := replacer.Replace(chatJID)
+	for strings.Contains(name, "..") {
+		name = strings.ReplaceAll(name, "..", "")
+	}
+	name = strings.Trim(name, ". ")
+	if name == "" || name == "." || name == ".." {
+		name = "_"
+	}
+	return name
+}
+
 // Function to download media from a message
-func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, messageID, chatJID string) (bool, string, string, string, error) {
+func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, mediaBaseDir, messageID, chatJID string) (bool, string, string, string, error) {
 	// Query the database for the message
 	var mediaType, filename, url string
 	var mediaKey, fileSHA256, fileEncSHA256 []byte
@@ -279,7 +293,18 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 	var err error
 
 	// First, check if we already have this file
-	chatDir := fmt.Sprintf("store/%s", strings.ReplaceAll(chatJID, ":", "_"))
+	baseAbs, err := filepath.Abs(mediaBaseDir)
+	if err != nil {
+		return false, "", "", "", fmt.Errorf("failed to resolve media directory: %v", err)
+	}
+	chatDir := filepath.Join(baseAbs, sanitizeChatDir(chatJID))
+	chatDirAbs, err := filepath.Abs(chatDir)
+	if err != nil {
+		return false, "", "", "", fmt.Errorf("failed to resolve chat directory: %v", err)
+	}
+	if chatDirAbs != baseAbs && !strings.HasPrefix(chatDirAbs, baseAbs+string(filepath.Separator)) {
+		return false, "", "", "", fmt.Errorf("chat directory escapes the media directory")
+	}
 	localPath := ""
 
 	// Get media info from the database
@@ -303,17 +328,20 @@ func downloadMedia(client *whatsmeow.Client, messageStore *MessageStore, message
 	}
 
 	// Create directory for the chat if it doesn't exist
-	if err := os.MkdirAll(chatDir, 0755); err != nil {
+	if err := os.MkdirAll(chatDirAbs, 0755); err != nil {
 		return false, "", "", "", fmt.Errorf("failed to create chat directory: %v", err)
 	}
 
-	// Generate a local path for the file
-	localPath = fmt.Sprintf("%s/%s", chatDir, filename)
+	// Generate a local path for the file, never leaving the chat directory
+	localPath = filepath.Join(chatDirAbs, filepath.Base(filename))
 
 	// Get absolute path
 	absPath, err := filepath.Abs(localPath)
 	if err != nil {
 		return false, "", "", "", fmt.Errorf("failed to get absolute path: %v", err)
+	}
+	if !strings.HasPrefix(absPath, chatDirAbs+string(filepath.Separator)) {
+		return false, "", "", "", fmt.Errorf("media file escapes the chat directory")
 	}
 
 	// Check if file already exists
@@ -383,10 +411,8 @@ func extractDirectPathFromURL(url string) string {
 		return url // Return original URL if parsing fails
 	}
 
+	// Keep the query string (ccb/oh/oe): the CDN rejects the request with 403 without it
 	pathPart := parts[1]
-
-	// Remove query parameters
-	pathPart = strings.SplitN(pathPart, "?", 2)[0]
 
 	// Create proper direct path format
 	return "/" + pathPart

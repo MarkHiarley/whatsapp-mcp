@@ -31,7 +31,16 @@ func extractTextContent(msg *waProto.Message) string {
 }
 
 // Handle regular incoming messages with media support
-func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *events.Message, logger waLog.Logger) {
+func handleMessage(rt *tenantRuntime, msg *events.Message, logger waLog.Logger) {
+	rt.mu.RLock()
+	client := rt.client
+	messageStore := rt.store
+	rt.mu.RUnlock()
+	if client == nil || messageStore == nil {
+		logger.Warnf("Skipping message for a runtime without client or store")
+		return
+	}
+
 	// Store direct chats and senders under their canonical phone identity.
 	chat := messageStore.CanonicalJID(client, msg.Info.Chat)
 	senderJID := messageStore.CanonicalJID(client, msg.Info.Sender)
@@ -58,22 +67,31 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 		return
 	}
 
-	// Store message in database
-	err = messageStore.StoreMessage(
-		msg.Info.ID,
-		chatJID,
-		sender,
-		content,
-		msg.Info.Timestamp,
-		msg.Info.IsFromMe,
-		mediaType,
-		filename,
-		url,
-		mediaKey,
-		fileSHA256,
-		fileEncSHA256,
-		fileLength,
-	)
+	isGroup := chat.Server == types.GroupServer
+	meta := &MessageEventMeta{
+		ChatName:    name,
+		SenderJID:   senderJID.String(),
+		SenderName:  messageStore.ContactName(senderJID),
+		IsGroup:     isGroup,
+		MentionedMe: mentionsSelf(client, msg.Message),
+	}
+
+	// Store message and its event atomically
+	_, err = messageStore.StoreMessage(StoredMessage{
+		ID:            msg.Info.ID,
+		ChatJID:       chatJID,
+		Sender:        sender,
+		Content:       content,
+		Timestamp:     msg.Info.Timestamp,
+		IsFromMe:      msg.Info.IsFromMe,
+		MediaType:     mediaType,
+		Filename:      filename,
+		URL:           url,
+		MediaKey:      mediaKey,
+		FileSHA256:    fileSHA256,
+		FileEncSHA256: fileEncSHA256,
+		FileLength:    fileLength,
+	}, meta)
 
 	if err != nil {
 		logger.Warnf("Failed to store message: %v", err)
@@ -92,6 +110,53 @@ func handleMessage(client *whatsmeow.Client, messageStore *MessageStore, msg *ev
 			fmt.Printf("[%s] %s %s: %s\n", timestamp, direction, sender, content)
 		}
 	}
+}
+
+// mentionsSelf reports whether the message mentions this account, by phone
+// number or privacy LID, in any message type that carries context info.
+func mentionsSelf(client *whatsmeow.Client, msg *waProto.Message) bool {
+	if client == nil || client.Store == nil || msg == nil {
+		return false
+	}
+
+	var contextInfo *waProto.ContextInfo
+	switch {
+	case msg.GetExtendedTextMessage() != nil:
+		contextInfo = msg.GetExtendedTextMessage().GetContextInfo()
+	case msg.GetImageMessage() != nil:
+		contextInfo = msg.GetImageMessage().GetContextInfo()
+	case msg.GetVideoMessage() != nil:
+		contextInfo = msg.GetVideoMessage().GetContextInfo()
+	case msg.GetDocumentMessage() != nil:
+		contextInfo = msg.GetDocumentMessage().GetContextInfo()
+	case msg.GetAudioMessage() != nil:
+		contextInfo = msg.GetAudioMessage().GetContextInfo()
+	}
+	if contextInfo == nil || len(contextInfo.GetMentionedJID()) == 0 {
+		return false
+	}
+
+	var self []string
+	if client.Store.ID != nil {
+		self = append(self, client.Store.ID.ToNonAD().String())
+		if client.Store.LIDs != nil {
+			if lid, err := client.Store.LIDs.GetLIDForPN(context.Background(), client.Store.ID.ToNonAD()); err == nil && !lid.IsEmpty() {
+				self = append(self, lid.String())
+			}
+		}
+	}
+	if !client.Store.LID.IsEmpty() {
+		self = append(self, client.Store.LID.String())
+	}
+
+	for _, mentioned := range contextInfo.GetMentionedJID() {
+		for _, own := range self {
+			if jidMatches(mentioned, own) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetChatName determines the appropriate name for a chat based on JID and other info
@@ -178,7 +243,16 @@ func GetChatName(client *whatsmeow.Client, messageStore *MessageStore, jid types
 }
 
 // Handle history sync events
-func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, historySync *events.HistorySync, logger waLog.Logger) {
+func handleHistorySync(rt *tenantRuntime, historySync *events.HistorySync, logger waLog.Logger) {
+	rt.mu.RLock()
+	client := rt.client
+	messageStore := rt.store
+	rt.mu.RUnlock()
+	if client == nil || messageStore == nil {
+		logger.Warnf("Skipping history sync for a runtime without client or store")
+		return
+	}
+
 	fmt.Printf("Received history sync event with %d conversations\n", len(historySync.Data.Conversations))
 
 	syncedCount := 0
@@ -290,21 +364,21 @@ func handleHistorySync(client *whatsmeow.Client, messageStore *MessageStore, his
 					continue
 				}
 
-				err = messageStore.StoreMessage(
-					msgID,
-					chatJID,
-					sender,
-					content,
-					timestamp,
-					isFromMe,
-					mediaType,
-					filename,
-					url,
-					mediaKey,
-					fileSHA256,
-					fileEncSHA256,
-					fileLength,
-				)
+				_, err = messageStore.StoreMessage(StoredMessage{
+					ID:            msgID,
+					ChatJID:       chatJID,
+					Sender:        sender,
+					Content:       content,
+					Timestamp:     timestamp,
+					IsFromMe:      isFromMe,
+					MediaType:     mediaType,
+					Filename:      filename,
+					URL:           url,
+					MediaKey:      mediaKey,
+					FileSHA256:    fileSHA256,
+					FileEncSHA256: fileEncSHA256,
+					FileLength:    fileLength,
+				}, nil)
 				if err != nil {
 					logger.Warnf("Failed to store history message: %v", err)
 				} else {

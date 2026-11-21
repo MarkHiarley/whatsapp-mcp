@@ -16,6 +16,10 @@ from whatsapp import (
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
     download_media as whatsapp_download_media,
+    list_events as whatsapp_list_events,
+    wait_for_events as whatsapp_wait_for_events,
+    list_rules as whatsapp_list_rules,
+    ack_events as whatsapp_ack_events,
     _localize_dt
 )
 
@@ -60,6 +64,40 @@ class ActionResult(TypedDict):
 
 class MediaResult(ActionResult):
     file_path: NotRequired[str]
+
+
+class EventDTO(TypedDict):
+    seq: int
+    message_id: str
+    chat_jid: str
+    chat_name: NotRequired[str]
+    sender_jid: NotRequired[str]
+    sender_name: NotRequired[str]
+    is_group: bool
+    is_from_me: bool
+    mentioned_me: bool
+    content: str
+    media_type: NotRequired[str]
+    timestamp: str
+    created_at: str
+
+
+class RuleMatchDTO(TypedDict, total=False):
+    chat_jids: List[str]
+    sender_jids: List[str]
+    is_group: bool
+    is_from_me: bool
+    mentioned_me: bool
+    text_contains: List[str]
+    text_regex: str
+
+
+class RuleDTO(TypedDict):
+    id: str
+    name: str
+    match: RuleMatchDTO
+    enabled: bool
+    created_at: str
 
 
 def _contract(value):
@@ -304,6 +342,62 @@ def download_media(message_id: str, chat_jid: str) -> MediaResult:
             "success": False,
             "message": "Failed to download media"
         }
+
+@mcp.tool()
+def list_events(after: int = 0, rule: Optional[str] = None, limit: int = 50) -> List[EventDTO]:
+    """List durable WhatsApp events for the tenant of this server process (WHATSAPP_TENANT_ID).
+
+    Events come in ascending `seq` order. `after` is the cursor: pass the last `seq` you processed
+    to get only newer events. Use `list_rules` to find rule ids.
+
+    Args:
+        after: Cursor. Returns events with seq greater than this value (default 0 = from the start)
+        rule: Optional rule id; when set, only events matched by that rule are returned
+        limit: Maximum number of events to return, 1 to 500 (default 50)
+    """
+    events = whatsapp_list_events(after=after, rule=rule, limit=limit)
+    return _contract(events)
+
+@mcp.tool()
+def wait_for_events(after: int = 0, timeout_seconds: int = 30, rule: Optional[str] = None) -> List[EventDTO]:
+    """Wait for new WhatsApp events for the tenant of this server process (WHATSAPP_TENANT_ID).
+
+    Returns as soon as the first non-empty batch arrives, or an empty list when `timeout_seconds`
+    expires. `after` is the cursor: pass the last `seq` you processed.
+
+    Args:
+        after: Cursor. Only events with seq greater than this value are returned (default 0)
+        timeout_seconds: Maximum time to wait in seconds (default 30)
+        rule: Optional rule id to filter events
+    """
+    events = whatsapp_wait_for_events(after=after, timeout=timeout_seconds, rule=rule)
+    return _contract(events)
+
+@mcp.tool()
+def list_rules() -> List[RuleDTO]:
+    """List the event rules of the tenant of this server process (WHATSAPP_TENANT_ID).
+
+    Each rule has an `id` to use with `list_events`, `wait_for_events` and `ack_events`.
+    """
+    rules = whatsapp_list_rules()
+    return _contract(rules)
+
+@mcp.tool()
+def ack_events(consumer_id: str, rule_id: str, seq: int) -> ActionResult:
+    """Save the consumer cursor for a rule of the tenant of this server process (WHATSAPP_TENANT_ID).
+
+    Delivery is at-least-once: after a restart, events after the saved `seq` may come again.
+
+    Args:
+        consumer_id: Consumer name (letters, digits, '_' or '-', up to 64 characters)
+        rule_id: The rule id the consumer is reading
+        seq: The last `seq` fully processed for this rule (non-negative)
+    """
+    success, status_message = whatsapp_ack_events(consumer_id, rule_id, seq)
+    return {
+        "success": success,
+        "message": status_message
+    }
 
 if __name__ == "__main__":
     # Initialize and run the server

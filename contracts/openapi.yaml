@@ -1,17 +1,181 @@
 openapi: 3.1.0
 info:
   title: WhatsApp Bridge API
-  version: 1.0.0
-  description: API interna entre o servidor MCP e o bridge WhatsApp.
+  version: 2.0.0
+  description: |
+    API do bridge multi-tenant.
+
+    - O tenant é resolvido pela **key** enviada em `Authorization: Bearer`.
+    - O `{tenant}` do path é apenas conferência: key de outro tenant retorna 403.
+    - O admin token (`WHATSAPP_ADMIN_TOKEN`) só é aceito nas rotas de provisionamento
+      (`POST/GET/DELETE /tenants`) e pode emitir/revogar keys e webhooks de qualquer tenant.
+    - Rotas sem `{tenant}` (`/send`, `/download`) operam no tenant `default`.
+    - Todas as respostas usam o envelope `{success, data, error}`.
 servers:
   - url: http://127.0.0.1:8080/api/v1
 security:
   - bearerAuth: []
+tags:
+  - name: tenants
+  - name: keys
+  - name: messages
+  - name: events
+  - name: rules
+  - name: webhooks
 paths:
-  /send:
+  /tenants:
+    get:
+      tags: [tenants]
+      operationId: listTenants
+      summary: Lista tenants e status (admin)
+      responses:
+        '200':
+          description: Lista de tenants
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
     post:
-      operationId: sendMessage
-      summary: Envia texto ou arquivo pelo WhatsApp
+      tags: [tenants]
+      operationId: createTenant
+      summary: Cria tenant e emite a primeira key (admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Tenant criado; o token aparece só nesta resposta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTenantResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /tenants/{tenant}:
+    delete:
+      tags: [tenants]
+      operationId: deleteTenant
+      summary: Desconecta e remove o tenant (admin)
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Tenant removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/status:
+    get:
+      tags: [tenants]
+      operationId: getTenantStatus
+      summary: Status da sessão do tenant
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Estado atual
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/qr:
+    get:
+      tags: [tenants]
+      operationId: streamTenantQR
+      summary: Stream SSE do QR e do estado do pareamento
+      description: |
+        `text/event-stream` com eventos `qr` (`data: {"code":"..."}`) e
+        `status` (`data: {"status":"pairing|connected|logged_out"}`).
+        O stream fecha quando o pareamento termina.
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Stream SSE
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/keys:
+    get:
+      tags: [keys]
+      operationId: listTenantKeys
+      summary: Lista keys do tenant (sem o token)
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Keys do tenant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantKeyListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [keys]
+      operationId: createTenantKey
+      summary: Emite uma key; o token aparece só nesta resposta
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantKeyRequest'
+      responses:
+        '201':
+          description: Key criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateTenantKeyResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /tenants/{tenant}/keys/{keyId}:
+    delete:
+      tags: [keys]
+      operationId: revokeTenantKey
+      summary: Revoga uma key imediatamente
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/KeyId'
+      responses:
+        '200':
+          description: Key revogada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RevokedResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/send:
+    post:
+      tags: [messages]
+      operationId: sendTenantMessage
+      summary: Envia texto ou arquivo pela sessão do tenant
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
       requestBody:
         required: true
         content:
@@ -25,18 +189,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SendMessageResponse'
-        '400':
-          $ref: '#/components/responses/InvalidRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-        '500':
-          $ref: '#/components/responses/InternalError'
-  /download:
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/TenantDisconnected' }
+  /tenants/{tenant}/download:
     post:
-      operationId: downloadMedia
-      summary: Baixa a mídia de uma mensagem
+      tags: [messages]
+      operationId: downloadTenantMedia
+      summary: Baixa a mídia de uma mensagem do tenant
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
       requestBody:
         required: true
         content:
@@ -50,20 +215,398 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DownloadMediaResponse'
-        '400':
-          $ref: '#/components/responses/InvalidRequest'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '405':
-          $ref: '#/components/responses/MethodNotAllowed'
-        '500':
-          $ref: '#/components/responses/InternalError'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '405': { $ref: '#/components/responses/MethodNotAllowed' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503': { $ref: '#/components/responses/TenantDisconnected' }
+  /tenants/{tenant}/events:
+    get:
+      tags: [events]
+      operationId: listTenantEvents
+      summary: Pull durável de eventos por cursor
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - name: after
+          in: query
+          schema: { type: integer, format: int64, minimum: 0, default: 0 }
+          description: Retorna eventos com seq > after.
+        - name: rule
+          in: query
+          schema: { type: string }
+          description: Filtra pelo rule_id; sem rule, retorna todos os eventos.
+        - name: consumer
+          in: query
+          schema: { type: string }
+          description: Quando informado e after=0, usa o cursor persistido do consumer.
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      responses:
+        '200':
+          description: Eventos em ordem de seq
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventsResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/consumers/{consumerId}/ack:
+    post:
+      tags: [events]
+      operationId: ackTenantEvents
+      summary: Persiste o cursor de um consumer (at-least-once)
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/ConsumerId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AckRequest'
+      responses:
+        '200':
+          description: Cursor atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AckResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /tenants/{tenant}/rules:
+    get:
+      tags: [rules]
+      operationId: listTenantRules
+      summary: Lista regras de evento
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Regras
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [rules]
+      operationId: createTenantRule
+      summary: Cria regra de evento
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRuleRequest'
+      responses:
+        '201':
+          description: Regra criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /tenants/{tenant}/rules/{ruleId}:
+    patch:
+      tags: [rules]
+      operationId: updateTenantRule
+      summary: Habilita, desabilita ou substitui o match da regra
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/RuleId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRuleRequest'
+      responses:
+        '200':
+          description: Regra atualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [rules]
+      operationId: deleteTenantRule
+      summary: Remove a regra
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/RuleId'
+      responses:
+        '200':
+          description: Regra removida
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/webhooks:
+    get:
+      tags: [webhooks]
+      operationId: listTenantWebhooks
+      summary: Lista webhooks (sem o secret)
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      responses:
+        '200':
+          description: Webhooks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [webhooks]
+      operationId: createTenantWebhook
+      summary: Cria webhook; o secret aparece só nesta resposta
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWebhookRequest'
+      responses:
+        '201':
+          description: Webhook criado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWebhookResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /tenants/{tenant}/webhooks/{webhookId}:
+    patch:
+      tags: [webhooks]
+      operationId: updateTenantWebhook
+      summary: Atualiza URL, regra ou enabled
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/WebhookId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWebhookRequest'
+      responses:
+        '200':
+          description: Webhook atualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [webhooks]
+      operationId: deleteTenantWebhook
+      summary: Remove webhook
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Webhook removido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeletedResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/webhooks/{webhookId}/secret:
+    post:
+      tags: [webhooks]
+      operationId: rotateTenantWebhookSecret
+      summary: Rotaciona o secret HMAC; o novo aparece só nesta resposta
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/WebhookId'
+      responses:
+        '200':
+          description: Novo secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebhookSecretResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /tenants/{tenant}/webhooks/{webhookId}/deliveries:
+    get:
+      tags: [webhooks]
+      operationId: listTenantWebhookDeliveries
+      summary: Log de entregas do webhook
+      parameters:
+        - $ref: '#/components/parameters/Tenant'
+        - $ref: '#/components/parameters/WebhookId'
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Entregas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeliveryListResponse'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /send:
+    post:
+      deprecated: true
+      tags: [messages]
+      operationId: sendLegacyMessage
+      summary: Compatibilidade; opera no tenant default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '200':
+          description: Mensagem enviada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SendMessageResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
+  /download:
+    post:
+      deprecated: true
+      tags: [messages]
+      operationId: downloadLegacyMedia
+      summary: Compatibilidade; opera no tenant default
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DownloadMediaRequest'
+      responses:
+        '200':
+          description: Mídia baixada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadMediaResponse'
+        '400': { $ref: '#/components/responses/InvalidRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/InternalError' }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
+  parameters:
+    Tenant:
+      name: tenant
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9][a-z0-9-]{1,31}$'
+    KeyId:
+      name: keyId
+      in: path
+      required: true
+      schema: { type: string }
+    RuleId:
+      name: ruleId
+      in: path
+      required: true
+      schema: { type: string }
+    WebhookId:
+      name: webhookId
+      in: path
+      required: true
+      schema: { type: string }
+    ConsumerId:
+      name: consumerId
+      in: path
+      required: true
+      schema: { type: string }
   schemas:
+    TenantView:
+      type: object
+      required: [id, label, status, keys, created_at]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        status:
+          type: string
+          enum: [disconnected, pairing, connected, logged_out]
+        jid: { type: string }
+        keys: { type: integer }
+        created_at: { type: string, format: date-time }
+    TenantKeyView:
+      type: object
+      required: [id, label, created_at]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: [string, 'null'], format: date-time }
+        revoked_at: { type: [string, 'null'], format: date-time }
+    CreateTenantRequest:
+      type: object
+      additionalProperties: false
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{1,31}$'
+          examples: ['cliente-x']
+        label: { type: string, minLength: 1 }
+    TenantKeyData:
+      type: object
+      required: [key, token]
+      properties:
+        key: { $ref: '#/components/schemas/TenantKeyView' }
+        token:
+          type: string
+          description: Token cru; não é recuperável depois.
+    CreateTenantData:
+      type: object
+      required: [tenant, key, token]
+      properties:
+        tenant: { $ref: '#/components/schemas/TenantView' }
+        key: { $ref: '#/components/schemas/TenantKeyView' }
+        token: { type: string }
+    CreateTenantKeyRequest:
+      type: object
+      additionalProperties: false
+      required: [label]
+      properties:
+        label: { type: string, minLength: 1, maxLength: 64 }
     SendMessageRequest:
       type: object
       additionalProperties: false
@@ -72,44 +615,124 @@ components:
         - required: [message]
         - required: [media_path]
       properties:
-        recipient:
-          type: string
-          minLength: 1
-          examples: ['5511999999999']
-        message:
-          type: string
-          minLength: 1
-        media_path:
-          type: string
-          minLength: 1
+        recipient: { type: string, minLength: 1, examples: ['5511999999999'] }
+        message: { type: string, minLength: 1 }
+        media_path: { type: string, minLength: 1 }
     DownloadMediaRequest:
       type: object
       additionalProperties: false
       required: [message_id, chat_jid]
       properties:
-        message_id:
-          type: string
-          minLength: 1
-        chat_jid:
-          type: string
-          minLength: 1
+        message_id: { type: string, minLength: 1 }
+        chat_jid: { type: string, minLength: 1 }
     SendMessageData:
       type: object
       required: [message]
       properties:
-        message:
-          type: string
+        message: { type: string }
     DownloadMediaData:
       type: object
       required: [message, filename, path]
       properties:
-        message:
-          type: string
-        filename:
-          type: string
-        path:
-          type: string
-          description: Caminho interno do arquivo; será substituído por contrato de mídia remota.
+        message: { type: string }
+        filename: { type: string }
+        path: { type: string }
+    Event:
+      type: object
+      required: [seq, message_id, chat_jid, is_group, is_from_me, mentioned_me, content, timestamp, created_at]
+      properties:
+        seq: { type: integer, format: int64 }
+        message_id: { type: string }
+        chat_jid: { type: string }
+        chat_name: { type: string }
+        sender_jid: { type: string }
+        sender_name: { type: string }
+        is_group: { type: boolean }
+        is_from_me: { type: boolean }
+        mentioned_me: { type: boolean }
+        content: { type: string }
+        media_type: { type: string }
+        timestamp: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    RuleMatch:
+      type: object
+      additionalProperties: false
+      description: AND entre campos; OR dentro das listas. JID completo ou telefone sem sufixo.
+      properties:
+        chat_jids: { type: array, items: { type: string } }
+        sender_jids: { type: array, items: { type: string } }
+        is_group: { type: boolean }
+        is_from_me: { type: boolean }
+        mentioned_me: { type: boolean }
+        text_contains: { type: array, items: { type: string } }
+        text_regex: { type: string }
+    EventRule:
+      type: object
+      required: [id, name, match, enabled, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        match: { $ref: '#/components/schemas/RuleMatch' }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+    CreateRuleRequest:
+      type: object
+      additionalProperties: false
+      required: [name, match]
+      properties:
+        id: { type: string }
+        name: { type: string, minLength: 1 }
+        match: { $ref: '#/components/schemas/RuleMatch' }
+        enabled: { type: boolean, default: true }
+    UpdateRuleRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1 }
+        match: { $ref: '#/components/schemas/RuleMatch' }
+        enabled: { type: boolean }
+    AckRequest:
+      type: object
+      additionalProperties: false
+      required: [rule_id, seq]
+      properties:
+        rule_id: { type: string }
+        seq: { type: integer, format: int64, minimum: 0 }
+    WebhookView:
+      type: object
+      required: [id, url, rule_id, enabled, created_at]
+      properties:
+        id: { type: string }
+        url: { type: string, format: uri }
+        rule_id: { type: string }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+    CreateWebhookRequest:
+      type: object
+      additionalProperties: false
+      required: [url, rule_id]
+      properties:
+        url: { type: string, format: uri }
+        rule_id: { type: string }
+        enabled: { type: boolean, default: true }
+    UpdateWebhookRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        url: { type: string, format: uri }
+        rule_id: { type: string }
+        enabled: { type: boolean }
+    DeliveryView:
+      type: object
+      required: [seq, webhook_id, attempts]
+      properties:
+        seq: { type: integer, format: int64 }
+        webhook_id: { type: string }
+        attempts: { type: integer }
+        last_status: { type: integer }
+        last_error: { type: string }
+        next_attempt_at: { type: string, format: date-time }
+        delivered_at: { type: string, format: date-time }
     APIError:
       type: object
       required: [code, message]
@@ -118,67 +741,247 @@ components:
           type: string
           enum:
             - UNAUTHORIZED
+            - FORBIDDEN
+            - ADMIN_DISABLED
             - INVALID_REQUEST
             - METHOD_NOT_ALLOWED
+            - NOT_FOUND
+            - CONFLICT
+            - INTERNAL_ERROR
             - SEND_FAILED
             - DOWNLOAD_FAILED
-        message:
-          type: string
+            - TENANT_DISCONNECTED
+            - RULE_INVALID
+            - WEBHOOK_INVALID
+        message: { type: string }
+    EnvelopeBase:
+      type: object
+      required: [success, data, error]
+      properties:
+        success: { type: boolean }
+        data: {}
+        error:
+          oneOf:
+            - $ref: '#/components/schemas/APIError'
+            - type: 'null'
+    TenantListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [tenants]
+              properties:
+                tenants:
+                  type: array
+                  items: { $ref: '#/components/schemas/TenantView' }
+    TenantResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [tenant]
+              properties:
+                tenant: { $ref: '#/components/schemas/TenantView' }
+    CreateTenantResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/CreateTenantData' }
+    TenantKeyListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [keys]
+              properties:
+                keys:
+                  type: array
+                  items: { $ref: '#/components/schemas/TenantKeyView' }
+    CreateTenantKeyResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/TenantKeyData' }
     SendMessageResponse:
-      type: object
-      additionalProperties: false
-      required: [success, data, error]
-      properties:
-        success:
-          const: true
-        data:
-          $ref: '#/components/schemas/SendMessageData'
-        error:
-          type: 'null'
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/SendMessageData' }
     DownloadMediaResponse:
-      type: object
-      additionalProperties: false
-      required: [success, data, error]
-      properties:
-        success:
-          const: true
-        data:
-          $ref: '#/components/schemas/DownloadMediaData'
-        error:
-          type: 'null'
-    ErrorResponse:
-      type: object
-      additionalProperties: false
-      required: [success, data, error]
-      properties:
-        success:
-          const: false
-        data:
-          type: 'null'
-        error:
-          $ref: '#/components/schemas/APIError'
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data: { $ref: '#/components/schemas/DownloadMediaData' }
+    EventsResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [events, next_after]
+              properties:
+                events:
+                  type: array
+                  items: { $ref: '#/components/schemas/Event' }
+                next_after: { type: integer, format: int64 }
+    RuleListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [rules]
+              properties:
+                rules:
+                  type: array
+                  items: { $ref: '#/components/schemas/EventRule' }
+    RuleResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [rule]
+              properties:
+                rule: { $ref: '#/components/schemas/EventRule' }
+    AckResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [consumer_id, rule_id, last_seq]
+              properties:
+                consumer_id: { type: string }
+                rule_id: { type: string }
+                last_seq: { type: integer, format: int64 }
+    WebhookListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [webhooks]
+              properties:
+                webhooks:
+                  type: array
+                  items: { $ref: '#/components/schemas/WebhookView' }
+    WebhookResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [webhook]
+              properties:
+                webhook: { $ref: '#/components/schemas/WebhookView' }
+    CreateWebhookResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [webhook, secret]
+              properties:
+                webhook: { $ref: '#/components/schemas/WebhookView' }
+                secret: { type: string }
+    WebhookSecretResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [secret]
+              properties:
+                secret: { type: string }
+    DeliveryListResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deliveries]
+              properties:
+                deliveries:
+                  type: array
+                  items: { $ref: '#/components/schemas/DeliveryView' }
+    DeletedResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [deleted_id]
+              properties:
+                deleted_id: { type: string }
+    RevokedResponse:
+      allOf:
+        - $ref: '#/components/schemas/EnvelopeBase'
+        - type: object
+          properties:
+            data:
+              type: object
+              required: [revoked_id]
+              properties:
+                revoked_id: { type: string }
   responses:
     InvalidRequest:
       description: Requisição inválida
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
     Unauthorized:
-      description: Token ausente ou inválido
+      description: Token ausente, inválido ou revogado
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
+    Forbidden:
+      description: Key de outro tenant ou admin token ausente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
+    NotFound:
+      description: Tenant, key, regra ou webhook inexistente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
+    Conflict:
+      description: ID já existe
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
     MethodNotAllowed:
       description: Método HTTP não permitido
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
     InternalError:
       description: Falha ao processar a operação
       content:
         application/json:
-          schema:
-            $ref: '#/components/schemas/ErrorResponse'
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
+    TenantDisconnected:
+      description: Sessão do tenant não está conectada
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/EnvelopeBase' }
