@@ -18,9 +18,11 @@ type Event struct {
 	SenderJID   string    `json:"sender_jid,omitempty"`
 	SenderName  string    `json:"sender_name,omitempty"`
 	IsGroup     bool      `json:"is_group"`
+	ChatType    string    `json:"chat_type"`
 	IsFromMe    bool      `json:"is_from_me"`
 	MentionedMe bool      `json:"mentioned_me"`
 	IsReplyToMe bool      `json:"is_reply_to_me"`
+	MessageType string    `json:"message_type"`
 	Content     string    `json:"content"`
 	MediaType   string    `json:"media_type,omitempty"`
 	Timestamp   time.Time `json:"timestamp"`
@@ -34,8 +36,10 @@ type MessageEventMeta struct {
 	SenderJID   string
 	SenderName  string
 	IsGroup     bool
+	ChatType    string
 	MentionedMe bool
 	IsReplyToMe bool
+	MessageType string
 }
 
 // StoredMessage is the frozen shape of a row written to messages.db.
@@ -64,6 +68,8 @@ type RuleMatch struct {
 	IsFromMe     *bool    `json:"is_from_me,omitempty"`
 	MentionedMe  *bool    `json:"mentioned_me,omitempty"`
 	IsReplyToMe  *bool    `json:"is_reply_to_me,omitempty"`
+	ChatTypes    []string `json:"chat_types,omitempty"`
+	MessageTypes []string `json:"message_types,omitempty"`
 	HasMedia     *bool    `json:"has_media,omitempty"`
 	MediaTypes   []string `json:"media_types,omitempty"`
 	TextContains []string `json:"text_contains,omitempty"`
@@ -99,7 +105,57 @@ func (m RuleMatch) Validate() error {
 			return fmt.Errorf("text_contains cannot contain an empty value")
 		}
 	}
+	for _, chatType := range m.ChatTypes {
+		if !validChatTypes[chatType] {
+			return fmt.Errorf("invalid chat_type %q", chatType)
+		}
+	}
+	for _, messageType := range m.MessageTypes {
+		if !validMessageTypes[messageType] {
+			return fmt.Errorf("invalid message_type %q", messageType)
+		}
+	}
 	return nil
+}
+
+var validChatTypes = map[string]bool{
+	"direct": true, "group": true, "status": true, "broadcast": true, "newsletter": true, "other": true,
+}
+
+var validMessageTypes = map[string]bool{
+	"text": true, "image": true, "video": true, "audio": true, "document": true,
+	"sticker": true, "location": true, "contact": true, "poll": true, "poll_update": true,
+	"reaction": true, "protocol": true, "interactive": true, "album": true, "event": true, "other": true,
+}
+
+func chatTypeFromJID(jid string) string {
+	switch {
+	case strings.HasSuffix(jid, "@g.us"):
+		return "group"
+	case strings.HasSuffix(jid, "@newsletter"):
+		return "newsletter"
+	case jid == "status@broadcast":
+		return "status"
+	case strings.HasSuffix(jid, "@broadcast"):
+		return "broadcast"
+	case strings.HasSuffix(jid, "@s.whatsapp.net"), strings.HasSuffix(jid, "@lid"):
+		return "direct"
+	default:
+		return "other"
+	}
+}
+
+func messageTypeFromEvent(ev Event) string {
+	if ev.MessageType != "" {
+		return ev.MessageType
+	}
+	if ev.MediaType != "" {
+		return ev.MediaType
+	}
+	if ev.Content != "" {
+		return "text"
+	}
+	return "other"
 }
 
 // Matches evaluates the rule against one event.
@@ -120,6 +176,16 @@ func (m RuleMatch) Matches(ev Event) bool {
 		return false
 	}
 	if m.IsReplyToMe != nil && ev.IsReplyToMe != *m.IsReplyToMe {
+		return false
+	}
+	chatType := ev.ChatType
+	if chatType == "" {
+		chatType = chatTypeFromJID(ev.ChatJID)
+	}
+	if len(m.ChatTypes) > 0 && !matchesFold(chatType, m.ChatTypes) {
+		return false
+	}
+	if len(m.MessageTypes) > 0 && !matchesFold(messageTypeFromEvent(ev), m.MessageTypes) {
 		return false
 	}
 	if m.HasMedia != nil && (ev.MediaType != "") != *m.HasMedia {
@@ -157,6 +223,15 @@ func (m RuleMatch) Matches(ev Event) bool {
 		}
 	}
 	return true
+}
+
+func matchesFold(actual string, wants []string) bool {
+	for _, want := range wants {
+		if strings.EqualFold(actual, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func matchesAnyJID(actual string, wants []string) bool {
@@ -201,9 +276,11 @@ func migrateEventSchema(db *sql.DB) error {
 			sender_jid TEXT,
 			sender_name TEXT,
 			is_group INTEGER NOT NULL DEFAULT 0,
+			chat_type TEXT NOT NULL DEFAULT '',
 			is_from_me INTEGER NOT NULL DEFAULT 0,
 			mentioned_me INTEGER NOT NULL DEFAULT 0,
 			is_reply_to_me INTEGER NOT NULL DEFAULT 0,
+			message_type TEXT NOT NULL DEFAULT '',
 			content TEXT,
 			media_type TEXT,
 			timestamp DATETIME,
@@ -249,7 +326,34 @@ func migrateEventSchema(db *sql.DB) error {
 			return fmt.Errorf("failed to migrate event schema: %w", err)
 		}
 	}
-	if err := ensureColumn(db, "events", "is_reply_to_me", "ALTER TABLE events ADD COLUMN is_reply_to_me INTEGER NOT NULL DEFAULT 0"); err != nil {
+	for _, column := range []struct{ name, ddl string }{
+		{"is_reply_to_me", "ALTER TABLE events ADD COLUMN is_reply_to_me INTEGER NOT NULL DEFAULT 0"},
+		{"chat_type", "ALTER TABLE events ADD COLUMN chat_type TEXT NOT NULL DEFAULT ''"},
+		{"message_type", "ALTER TABLE events ADD COLUMN message_type TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := ensureColumn(db, "events", column.name, column.ddl); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec(`
+		UPDATE events SET chat_type = CASE
+			WHEN chat_jid LIKE '%@g.us' THEN 'group'
+			WHEN chat_jid LIKE '%@newsletter' THEN 'newsletter'
+			WHEN chat_jid = 'status@broadcast' THEN 'status'
+			WHEN chat_jid LIKE '%@broadcast' THEN 'broadcast'
+			WHEN chat_jid LIKE '%@lid' OR chat_jid LIKE '%@s.whatsapp.net' THEN 'direct'
+			ELSE 'other' END
+		WHERE chat_type = ''
+	`); err != nil {
+		return err
+	}
+	if _, err := db.Exec(`
+		UPDATE events SET message_type = CASE
+			WHEN media_type IS NOT NULL AND media_type <> '' THEN media_type
+			WHEN content IS NOT NULL AND content <> '' THEN 'text'
+			ELSE 'other' END
+		WHERE message_type = ''
+	`); err != nil {
 		return err
 	}
 	return ensureColumn(db, "event_webhooks", "headers_json", "ALTER TABLE event_webhooks ADD COLUMN headers_json TEXT NOT NULL DEFAULT '{}'")

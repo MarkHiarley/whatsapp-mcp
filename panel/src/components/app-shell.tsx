@@ -8,7 +8,6 @@ import {
   Building2,
   KeyRound,
   LayoutDashboard,
-  ListFilter,
   MessagesSquare,
   QrCode,
   Settings,
@@ -42,7 +41,6 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
   {
     label: "Automação",
     items: [
-      { href: "/rules", label: "Regras", icon: ListFilter },
       { href: "/webhooks", label: "Webhooks", icon: Webhook },
     ],
   },

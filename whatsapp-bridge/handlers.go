@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -13,21 +14,103 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-// Extract text content from a message
+// Extract text content from a message, including a readable fallback for
+// message kinds that do not have a text body.
 func extractTextContent(msg *waProto.Message) string {
 	if msg == nil {
 		return ""
 	}
-
-	// Try to get text content
 	if text := msg.GetConversation(); text != "" {
 		return text
-	} else if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
+	}
+	if extendedText := msg.GetExtendedTextMessage(); extendedText != nil {
 		return extendedText.GetText()
 	}
-
-	// For now, we're ignoring non-text messages
+	switch {
+	case msg.GetImageMessage() != nil:
+		return msg.GetImageMessage().GetCaption()
+	case msg.GetVideoMessage() != nil:
+		return msg.GetVideoMessage().GetCaption()
+	case msg.GetDocumentMessage() != nil:
+		return msg.GetDocumentMessage().GetCaption()
+	case msg.GetStickerMessage() != nil:
+		return "[sticker]"
+	case msg.GetLocationMessage() != nil:
+		location := msg.GetLocationMessage()
+		if location.GetName() != "" || location.GetAddress() != "" {
+			return strings.TrimSpace(location.GetName() + " " + location.GetAddress())
+		}
+		return fmt.Sprintf("%f,%f", location.GetDegreesLatitude(), location.GetDegreesLongitude())
+	case msg.GetLiveLocationMessage() != nil:
+		return "[live location]"
+	case msg.GetContactMessage() != nil:
+		return msg.GetContactMessage().GetDisplayName()
+	case msg.GetContactsArrayMessage() != nil:
+		names := make([]string, 0, len(msg.GetContactsArrayMessage().GetContacts()))
+		for _, contact := range msg.GetContactsArrayMessage().GetContacts() {
+			if name := contact.GetDisplayName(); name != "" {
+				names = append(names, name)
+			}
+		}
+		return strings.Join(names, ", ")
+	case msg.GetPollCreationMessage() != nil:
+		return msg.GetPollCreationMessage().GetName()
+	case msg.GetPollUpdateMessage() != nil:
+		return "[poll vote]"
+	case msg.GetReactionMessage() != nil:
+		return msg.GetReactionMessage().GetText()
+	case msg.GetProtocolMessage() != nil:
+		return msg.GetProtocolMessage().GetType().String()
+	case msg.GetButtonsResponseMessage() != nil:
+		return msg.GetButtonsResponseMessage().GetSelectedDisplayText()
+	case msg.GetListResponseMessage() != nil:
+		return msg.GetListResponseMessage().GetTitle()
+	case msg.GetTemplateButtonReplyMessage() != nil:
+		return msg.GetTemplateButtonReplyMessage().GetSelectedDisplayText()
+	case msg.GetAlbumMessage() != nil:
+		return "[album]"
+	case msg.GetEventMessage() != nil:
+		return msg.GetEventMessage().GetName()
+	}
 	return ""
+}
+
+func messageTypeOf(msg *waProto.Message, mediaType, content string) string {
+	if mediaType != "" {
+		return mediaType
+	}
+	if msg == nil {
+		if content != "" {
+			return "text"
+		}
+		return "other"
+	}
+	switch {
+	case msg.GetStickerMessage() != nil:
+		return "sticker"
+	case msg.GetLocationMessage() != nil, msg.GetLiveLocationMessage() != nil:
+		return "location"
+	case msg.GetContactMessage() != nil, msg.GetContactsArrayMessage() != nil:
+		return "contact"
+	case msg.GetPollCreationMessage() != nil:
+		return "poll"
+	case msg.GetPollUpdateMessage() != nil:
+		return "poll_update"
+	case msg.GetReactionMessage() != nil:
+		return "reaction"
+	case msg.GetProtocolMessage() != nil:
+		return "protocol"
+	case msg.GetButtonsResponseMessage() != nil, msg.GetListResponseMessage() != nil, msg.GetTemplateButtonReplyMessage() != nil:
+		return "interactive"
+	case msg.GetAlbumMessage() != nil:
+		return "album"
+	case msg.GetEventMessage() != nil:
+		return "event"
+	}
+	if content != "" {
+		return "text"
+	}
+	return "other"
 }
 
 // Handle regular incoming messages with media support
@@ -69,13 +152,17 @@ func handleMessage(rt *tenantRuntime, msg *events.Message, logger waLog.Logger) 
 
 	isGroup := chat.Server == types.GroupServer
 	mentionedMe, replyToMe := messageContext(client, msg.Message)
+	chatType := chatTypeFromJID(chatJID)
+	messageType := messageTypeOf(msg.Message, mediaType, content)
 	meta := &MessageEventMeta{
 		ChatName:    name,
 		SenderJID:   senderJID.String(),
 		SenderName:  messageStore.ContactName(senderJID),
 		IsGroup:     isGroup,
+		ChatType:    chatType,
 		MentionedMe: mentionedMe,
 		IsReplyToMe: replyToMe,
+		MessageType: messageType,
 	}
 
 	// Store message and its event atomically

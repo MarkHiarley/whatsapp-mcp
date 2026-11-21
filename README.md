@@ -175,10 +175,16 @@ Match fields are combined with AND. Values inside a list are combined with OR:
 | `is_from_me` | Messages sent by the tenant's own number |
 | `mentioned_me` | Messages that mention the tenant's number |
 | `is_reply_to_me` | Messages that quote a message sent by the tenant's number |
+| `chat_type` | `direct`, `group`, `status`, `broadcast`, `newsletter` or `other` |
+| `message_type` | `text`, `image`, `video`, `audio`, `document`, `sticker`, `location`, `contact`, `poll`, `reaction`, `protocol`, etc. |
+| `chat_types` | List of chat types (OR); use to opt into groups/status/newsletters |
+| `message_types` | List of message types (OR) |
 | `has_media` | Messages with (`true`) or without (`false`) media |
 | `media_types` | Media type: `image`, `video`, `audio`, `document` (any listed value matches) |
 | `text_contains` | Case-insensitive keyword |
 | `text_regex` | Regular expression on the text |
+
+Webhook deliveries have a safe default independent of ingestion: empty rules deliver only **direct, inbound** messages. Outgoing messages are skipped unless `is_from_me: true`; groups, status and newsletters need `chat_types` (or an explicit `chat_jids` entry). The events API still returns every stored event, so silent drops do not lose history.
 
 Read events. Without `after`, `consumer` resumes from the consumer's saved cursor. Then pass `next_after` back as `after`:
 

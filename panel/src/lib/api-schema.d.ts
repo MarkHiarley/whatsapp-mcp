@@ -467,9 +467,13 @@ export interface components {
             sender_jid?: string;
             sender_name?: string;
             is_group: boolean;
+            /** @enum {string} */
+            chat_type: "direct" | "group" | "status" | "broadcast" | "newsletter" | "other";
             is_from_me: boolean;
             mentioned_me: boolean;
             is_reply_to_me: boolean;
+            /** @enum {string} */
+            message_type: "text" | "image" | "video" | "audio" | "document" | "sticker" | "location" | "contact" | "poll" | "poll_update" | "reaction" | "protocol" | "interactive" | "album" | "event" | "other";
             content: string;
             media_type?: string;
             /** Format: date-time */
@@ -485,6 +489,8 @@ export interface components {
             is_from_me?: boolean;
             mentioned_me?: boolean;
             is_reply_to_me?: boolean;
+            chat_types?: ("direct" | "group" | "status" | "broadcast" | "newsletter" | "other")[];
+            message_types?: ("text" | "image" | "video" | "audio" | "document" | "sticker" | "location" | "contact" | "poll" | "poll_update" | "reaction" | "protocol" | "interactive" | "album" | "event" | "other")[];
             has_media?: boolean;
             media_types?: ("image" | "video" | "audio" | "document" | "sticker")[];
             text_contains?: string[];
