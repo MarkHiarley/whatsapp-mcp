@@ -21,6 +21,7 @@ import { initials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
+import { TenantSwitcher } from "@/components/tenant-switcher";
 
 type NavItem = {
   href: string;
@@ -111,44 +112,65 @@ function TenantCard({
   tenant,
   status,
   role,
+  tenants,
 }: {
   tenant: string;
   status: TenantStatusValue | null;
   role: PanelRole;
+  tenants: { id: string; label: string }[];
 }) {
+  const content = (
+    <div className="flex items-center gap-2.5">
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
+        <Building2 className="size-4" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+          Tenant
+          <span
+            className={cn(
+              "rounded px-1 py-0.5 text-[9px] tracking-[0.08em]",
+              role === "admin"
+                ? "bg-highlight/20 text-highlight-foreground"
+                : "bg-muted text-muted-foreground",
+            )}
+          >
+            {role}
+          </span>
+        </p>
+        <p className="truncate font-mono text-xs font-medium">{tenant}</p>
+      </div>
+      {status ? (
+        <span
+          className={cn("size-2 shrink-0 rounded-full", STATUS_DOT_CLASSES[status])}
+          title={STATUS_LABELS[status]}
+          aria-label={STATUS_LABELS[status]}
+        />
+      ) : null}
+    </div>
+  );
+
+  if (role === "admin" && tenants.length > 1) {
+    return (
+      <div className="mx-3 mt-3 rounded-lg border border-sidebar-border bg-background p-3">
+        {content}
+        <TenantSwitcher current={tenant} tenants={tenants} />
+        <Link
+          href="/tenants"
+          className="mt-1.5 block text-[10px] text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          Gerenciar tenants
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <Link
       href="/tenants"
       className="mx-3 mt-3 block rounded-lg border border-sidebar-border bg-background p-3 transition-colors hover:bg-muted"
     >
-      <div className="flex items-center gap-2.5">
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
-          <Building2 className="size-4" aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-            Tenant
-            <span
-              className={cn(
-                "rounded px-1 py-0.5 text-[9px] tracking-[0.08em]",
-                role === "admin"
-                  ? "bg-highlight/20 text-sidebar-accent-foreground"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {role}
-            </span>
-          </p>
-          <p className="truncate font-mono text-xs font-medium">{tenant}</p>
-        </div>
-        {status ? (
-          <span
-            className={cn("size-2 shrink-0 rounded-full", STATUS_DOT_CLASSES[status])}
-            title={STATUS_LABELS[status]}
-            aria-label={STATUS_LABELS[status]}
-          />
-        ) : null}
-      </div>
+      {content}
     </Link>
   );
 }
@@ -164,6 +186,7 @@ export function AppShell({
   showBanner = false,
   userName = "",
   userEmail = "",
+  tenants = [],
 }: {
   header: ReactNode;
   children: ReactNode;
@@ -175,6 +198,7 @@ export function AppShell({
   showBanner?: boolean;
   userName?: string;
   userEmail?: string;
+  tenants?: { id: string; label: string }[];
 }) {
   const pathname = usePathname();
   const host = bridgeUrl.replace(/^https?:\/\//, "").replace(/\/api\/v1\/?$/, "");
@@ -208,7 +232,7 @@ export function AppShell({
         <div className="flex h-16 items-center border-b border-sidebar-border px-4">
           <Brand />
         </div>
-        <TenantCard tenant={tenant} status={status} role={role} />
+        <TenantCard tenant={tenant} status={status} role={role} tenants={tenants} />
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
           {navGroups.map((group) => (
             <div key={group.label} className="mb-5 last:mb-0">

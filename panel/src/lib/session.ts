@@ -1,9 +1,11 @@
-import { and, asc, eq } from "drizzle-orm";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+
+import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { member, tenantCredentials, user } from "@/db/schema";
+import { isEmailAllowed } from "@/lib/access";
 import { auth } from "@/lib/auth";
 import { decryptSecret } from "@/lib/crypto";
 
@@ -23,6 +25,8 @@ export type TenantContext = {
   organizationRole: string;
 };
 
+export const TENANT_COOKIE = "panel_tenant";
+
 export async function getSession(): Promise<SessionLike | null> {
   return auth.api.getSession({ headers: await headers() });
 }
@@ -39,6 +43,14 @@ export async function isPanelAdmin(email: string, userId: string): Promise<boole
 }
 
 async function contextFromSession(session: SessionLike): Promise<TenantContext | null> {
+  if (!isEmailAllowed(session.user.email)) {
+    return null;
+  }
+  const isAdmin = await isPanelAdmin(session.user.email, session.user.id);
+  const adminToken = process.env.BRIDGE_ADMIN_TOKEN;
+  const cookieStore = await cookies();
+  const selectedTenant = isAdmin ? cookieStore.get(TENANT_COOKIE)?.value : undefined;
+
   let organizationId = session.session.activeOrganizationId ?? null;
   if (!organizationId) {
     const membership = await db
@@ -48,32 +60,40 @@ async function contextFromSession(session: SessionLike): Promise<TenantContext |
       .limit(1);
     organizationId = membership[0]?.organizationId ?? null;
   }
-  if (!organizationId) {
+
+  const credential = organizationId
+    ? await db
+        .select()
+        .from(tenantCredentials)
+        .where(eq(tenantCredentials.organizationId, organizationId))
+        .limit(1)
+    : [];
+
+  const organizationRole = organizationId
+    ? (
+        await db
+          .select({ role: member.role })
+          .from(member)
+          .where(and(eq(member.organizationId, organizationId), eq(member.userId, session.user.id)))
+          .limit(1)
+      )[0]?.role ?? "member"
+    : "member";
+
+  const tenantId = isAdmin && selectedTenant ? selectedTenant : credential[0]?.tenantId;
+  const token = isAdmin && adminToken ? adminToken : credential[0] ? decryptSecret(credential[0].encryptedToken) : null;
+
+  if (!tenantId || !token) {
     return null;
   }
-  const credential = await db
-    .select()
-    .from(tenantCredentials)
-    .where(eq(tenantCredentials.organizationId, organizationId))
-    .limit(1);
-  if (!credential[0]) {
-    return null;
-  }
-  const membership = await db
-    .select({ role: member.role })
-    .from(member)
-    .where(and(eq(member.organizationId, organizationId), eq(member.userId, session.user.id)))
-    .limit(1);
-  const organizationRole = membership[0]?.role ?? "member";
-  const isAdmin = await isPanelAdmin(session.user.email, session.user.id);
+
   const role: PanelRole = isAdmin ? "admin" : organizationRole === "owner" ? "owner" : "member";
   return {
     userId: session.user.id,
     email: session.user.email,
     name: session.user.name,
-    organizationId,
-    tenantId: credential[0].tenantId,
-    token: decryptSecret(credential[0].encryptedToken),
+    organizationId: organizationId ?? "",
+    tenantId,
+    token,
     isAdmin,
     role,
     organizationRole,
