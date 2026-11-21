@@ -47,3 +47,11 @@ func TestMediaPathStaysUnderMediaDir(t *testing.T) {
 		t.Fatalf("sanitized path escaped the media directory: %s", absJoined)
 	}
 }
+
+func TestExtractDirectPathKeepsQueryString(t *testing.T) {
+	const raw = "https://mmg.whatsapp.net/o1/v/t24/f2/m235/PAYLOAD?ccb=11-4&oh=abc&oe=xyz"
+	want := "/o1/v/t24/f2/m235/PAYLOAD?ccb=11-4&oh=abc&oe=xyz"
+	if got := extractDirectPathFromURL(raw); got != want {
+		t.Fatalf("extractDirectPathFromURL() = %q, want %q", got, want)
+	}
+}
