@@ -36,6 +36,17 @@ jobs:
       - id: meta
         run: echo "tag=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      - name: Build and push bridge
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/markhiarley/whatsapp-bridge:latest
+            ghcr.io/markhiarley/whatsapp-bridge:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Build and push panel
         uses: docker/build-push-action@v6
         with:
@@ -90,10 +101,14 @@ jobs:
             set -euo pipefail
             cd /root/whatsapp-panel
             test -f .env || { echo "missing /root/whatsapp-panel/.env"; exit 1; }
+            export PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-panel:latest
+            export PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-panel-migrate:latest
+            export BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-bridge:latest
             echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            docker compose pull panel-db panel-migrate panel
+            docker compose pull panel-db panel-migrate panel whatsapp-mcp
             docker compose up -d --wait panel-db
             docker compose run --rm --no-deps panel-migrate
+            docker compose up -d whatsapp-mcp
             docker compose up -d panel
             docker logout ghcr.io
             docker image prune -f --filter "until=168h"
