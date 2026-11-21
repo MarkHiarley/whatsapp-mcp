@@ -41,13 +41,15 @@ type tenantRuntime struct {
 
 // TenantManager owns one whatsmeow session and one message store per tenant.
 type TenantManager struct {
-	mu         sync.RWMutex
-	runtimes   map[string]*tenantRuntime
-	tenants    *TenantStore
-	logger     waLog.Logger
-	adminToken string
-	stop       chan struct{}
-	stopOnce   sync.Once
+	mu          sync.RWMutex
+	runtimes    map[string]*tenantRuntime
+	tenants     *TenantStore
+	logger      waLog.Logger
+	adminToken  string
+	stop        chan struct{}
+	stopOnce    sync.Once
+	eventOnce   sync.Once
+	eventCancel context.CancelFunc
 }
 
 // NewTenantManager wires the registry to the in-process session manager.
@@ -83,7 +85,8 @@ func (m *TenantManager) AuthenticateAdmin(token string) bool {
 }
 
 // StartAll opens every registered tenant without blocking the boot.
-func (m *TenantManager) StartAll(_ context.Context) {
+func (m *TenantManager) StartAll(ctx context.Context) {
+	m.StartEventWorker(ctx)
 	for _, view := range m.tenants.List() {
 		tenant, ok := m.tenants.Get(view.ID)
 		if !ok {
@@ -307,6 +310,10 @@ func (m *TenantManager) StartPairing(rt *tenantRuntime) (<-chan qrEvent, error) 
 func (m *TenantManager) StopAll() {
 	m.stopOnce.Do(func() { close(m.stop) })
 	m.mu.Lock()
+	if m.eventCancel != nil {
+		m.eventCancel()
+		m.eventCancel = nil
+	}
 	runtimes := make([]*tenantRuntime, 0, len(m.runtimes))
 	for _, rt := range m.runtimes {
 		runtimes = append(runtimes, rt)
