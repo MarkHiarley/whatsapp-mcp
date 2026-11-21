@@ -1,7 +1,7 @@
 # WhatsApp MCP Server
 
 Connect WhatsApp to AI agents through the **Model Context Protocol (MCP)**.
-This fork includes an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, and a multi-tenant bridge (one process, many WhatsApp numbers) with durable events and webhooks.
+Originally created by [Luke Harries (@lharries)](https://github.com/lharries); maintained and substantially rewritten by [Hiarley Costa (@MarkHiarley)](https://github.com/MarkHiarley) since the upstream project stalled in July 2025. This repository ships an updated Whatsmeow dependency, compatibility fixes, local timezone support, Docker, an authenticated REST API, a multi-tenant bridge (one process, many WhatsApp numbers) with durable events and signed webhooks, a Next.js control panel, and VPS deployment automation. See [Credits](#credits) for the full split of authorship.
 
 
 ## Docker (recommended)
@@ -500,7 +500,24 @@ The panel is published at `127.0.0.1:3000`; the bridge remains internal (`127.0.
 
 ## Credits
 
-Original project created by [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). This fork preserves the original project credits and MIT license.
+**Original project:** [Luke Harries (@lharries)](https://github.com/lharries) — [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp), MIT. Upstream's last commit is from July 2025.
+
+**Current maintainer:** [Hiarley Costa (@MarkHiarley)](https://github.com/MarkHiarley) — maintenance and every feature below, since upstream went dormant.
+
+The original idea, the Go bridge skeleton, the Python MCP server, and the base tooling come from upstream. Everything else is new work added here after the upstream project stopped:
+
+- Multi-tenant bridge: one process, N WhatsApp numbers, per-tenant whatsmeow sessions, databases, and media; `default` keeps the legacy paths.
+- Authenticated REST API with durable events, HMAC-signed webhooks, and versioned contracts.
+- Next.js control panel: Google login, roles, encrypted keys per tenant, tenant auto-provisioning with an email allowlist, and a read API.
+- Docker Compose stack, GHCR images, and CI/CD that deploys the panel to a VPS.
+
+Numbers against upstream's last commit (`7d6a06d`):
+
+- 146 files changed, 31,989 insertions, 1,856 deletions.
+- 103 of those files are the panel, which did not exist upstream.
+- 40 of the 67 commits in this history are the maintainer's; 23 are upstream's, 4 came from outside contributors.
+
+The original copyright is retained in [LICENSE](LICENSE) as MIT requires, and the maintainer's modifications are copyrighted alongside it.
 
 ## License
 
