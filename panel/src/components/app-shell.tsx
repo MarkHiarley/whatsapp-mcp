@@ -16,7 +16,9 @@ import {
 } from "lucide-react";
 
 import { STATUS_DOT_CLASSES, STATUS_LABELS, type TenantStatusValue } from "@/lib/status";
+import type { PanelRole } from "@/lib/session";
 import { cn } from "@/lib/utils";
+import { SignOutButton } from "@/components/auth/sign-out-button";
 
 type NavItem = {
   href: string;
@@ -103,7 +105,15 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-function TenantCard({ tenant, status }: { tenant: string; status: TenantStatusValue | null }) {
+function TenantCard({
+  tenant,
+  status,
+  role,
+}: {
+  tenant: string;
+  status: TenantStatusValue | null;
+  role: PanelRole;
+}) {
   return (
     <Link
       href="/tenants"
@@ -114,7 +124,19 @@ function TenantCard({ tenant, status }: { tenant: string; status: TenantStatusVa
           <Building2 className="size-4" aria-hidden />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">Tenant</p>
+          <p className="flex items-center gap-1 text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+            Tenant
+            <span
+              className={cn(
+                "rounded px-1 py-0.5 text-[9px] tracking-[0.08em]",
+                role === "admin"
+                  ? "bg-highlight/20 text-foreground"
+                  : "bg-muted text-muted-foreground",
+              )}
+            >
+              {role}
+            </span>
+          </p>
           <p className="truncate font-mono text-xs font-medium">{tenant}</p>
         </div>
         {status ? (
@@ -135,15 +157,23 @@ export function AppShell({
   tenant,
   status,
   bridgeUrl,
+  isAdmin = false,
+  role = "member",
 }: {
   header: ReactNode;
   children: ReactNode;
   tenant: string;
   status: TenantStatusValue | null;
   bridgeUrl: string;
+  isAdmin?: boolean;
+  role?: PanelRole;
 }) {
   const pathname = usePathname();
   const host = bridgeUrl.replace(/^https?:\/\//, "").replace(/\/api\/v1\/?$/, "");
+  const navGroups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => !item.admin || isAdmin),
+  })).filter((group) => group.items.length > 0);
 
   return (
     <div className="min-h-svh bg-background">
@@ -163,9 +193,9 @@ export function AppShell({
         <div className="flex h-16 items-center border-b border-sidebar-border px-4">
           <Brand />
         </div>
-        <TenantCard tenant={tenant} status={status} />
+        <TenantCard tenant={tenant} status={status} role={role} />
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Navegação principal">
-          {NAV_GROUPS.map((group) => (
+          {navGroups.map((group) => (
             <div key={group.label} className="mb-5 last:mb-0">
               <p className="mb-1.5 px-2.5 text-[10px] font-semibold tracking-[0.16em] text-sidebar-foreground/40 uppercase">
                 {group.label}
@@ -186,6 +216,7 @@ export function AppShell({
             <Settings className="size-3.5" aria-hidden />
             Configuração do tenant
           </Link>
+          <SignOutButton className="mt-1 w-full justify-start text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground" />
         </div>
       </aside>
 
@@ -198,7 +229,7 @@ export function AppShell({
             <div className="ml-auto flex min-w-0 items-center gap-1.5 sm:gap-2">{header}</div>
           </div>
           <nav className="flex gap-1 overflow-x-auto border-t px-3 py-2 lg:hidden" aria-label="Navegação principal">
-            {NAV_GROUPS.flatMap((group) => group.items).map((item) => {
+            {navGroups.flatMap((group) => group.items).map((item) => {
               const active = isActive(pathname, item.href);
               return (
                 <Link

@@ -6,7 +6,6 @@ import { AckForm } from "@/components/events/ack-form";
 import { EventFilters } from "@/components/events/event-filters";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,8 +19,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { loadEvents, loadRules } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime, truncate } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
 
@@ -40,15 +39,7 @@ export default async function EventsPage({
 }) {
   await connection();
 
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <PageHeader title="Eventos" description="Pull durável de eventos por cursor." />
-        <NotConfigured />
-      </>
-    );
-  }
-
+  const { tenantId } = await requireTenantContext();
   const { after: afterParam, rule: ruleParam } = await searchParams;
   const after = parseAfter(afterParam);
   const rule = ruleParam?.trim() || undefined;
@@ -176,7 +167,7 @@ export default async function EventsPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <AckForm tenantId={TENANT_ID} rules={rules} defaultRule={rule ?? ""} defaultSeq={nextAfter} />
+          <AckForm tenantId={tenantId} rules={rules} defaultRule={rule ?? ""} defaultSeq={nextAfter} />
         </CardContent>
       </Card>
     </>

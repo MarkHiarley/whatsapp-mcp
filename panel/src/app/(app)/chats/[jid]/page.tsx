@@ -6,15 +6,14 @@ import { MessageMedia } from "@/components/chats/message-media";
 import { SendMessageForm } from "@/components/chats/send-message-form";
 import { EmptyState } from "@/components/empty-state";
 import { ErrorState } from "@/components/error-state";
-import { NotConfigured } from "@/components/not-configured";
 import { StatusBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { loadChats, loadMessages, loadStatus } from "@/lib/api";
-import { TENANT_ID, bridgeConfigured } from "@/lib/bridge";
 import { formatDateTime, formatTime, initials, phoneFromJid } from "@/lib/format";
+import { requireTenantContext } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 export const instant = false;
@@ -36,17 +35,9 @@ export default async function ChatDetailPage({
 }) {
   await connection();
 
+  const { tenantId } = await requireTenantContext();
   const { jid: rawJid } = await params;
   const jid = safeDecode(rawJid);
-
-  if (!bridgeConfigured()) {
-    return (
-      <>
-        <BackLink />
-        <NotConfigured />
-      </>
-    );
-  }
 
   const { before } = await searchParams;
   const [messagesResult, statusResult, chatsResult] = await Promise.all([
@@ -64,10 +55,7 @@ export default async function ChatDetailPage({
   return (
     <>
       <div className="mb-4 flex items-center justify-between gap-2">
-        <Link href="/chats" className={buttonVariants({ variant: "ghost", size: "sm" })}>
-          <ChevronLeft aria-hidden />
-          Chats
-        </Link>
+        <BackLink />
         {statusResult.ok ? <StatusBadge status={statusResult.data.status} /> : null}
       </div>
 
@@ -145,7 +133,7 @@ export default async function ChatDetailPage({
                         <p className="mb-0.5 truncate text-[11px] font-medium opacity-70">{message.sender}</p>
                       ) : null}
 
-                      <MessageMedia message={message} jid={jid} />
+                      <MessageMedia message={message} jid={jid} tenantId={tenantId} />
 
                       {message.content ? (
                         <p className="break-words whitespace-pre-wrap">{message.content}</p>
@@ -170,7 +158,7 @@ export default async function ChatDetailPage({
                 Sessão não está conectada — o envio fica desabilitado até o pareamento terminar.
               </p>
             )}
-            <SendMessageForm tenantId={TENANT_ID} jid={jid} disabled={!connected} />
+            <SendMessageForm tenantId={tenantId} jid={jid} disabled={!connected} />
           </CardFooter>
         </Card>
       ) : null}
@@ -182,7 +170,7 @@ function BackLink() {
   return (
     <Link href="/chats" className={buttonVariants({ variant: "ghost", size: "sm" })}>
       <ChevronLeft aria-hidden />
-      Chats
+      Conversas
     </Link>
   );
 }

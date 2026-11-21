@@ -415,6 +415,69 @@ whatsapp-mcp/
 └── data/                      # Persistent session, ignored by Git
 ```
 
+## Panel (Next.js)
+
+The panel lives in `panel/`. It uses **Next.js 16**, shadcn/ui, Tailwind, Recharts, and Three.js, with **Better Auth + Postgres** for users and organizations. Each organization maps to one bridge tenant, and the tenant key is stored **AES-256-GCM encrypted**; the browser never sees it.
+
+### Authentication and roles
+
+Sign-in is Google OAuth. Email/password stays enabled for local bootstrap and tests.
+
+| Role | Scope |
+|---|---|
+| `admin` | `PRIMER_ADMIN` + `PANEL_ADMIN_EMAILS`: all tenants, provisioning, any tenant data |
+| `owner` | Member of the organization: read/send/events + keys, rules, and webhooks of that tenant |
+| `member` | Member of the organization: read, send, and consume events; no key/rule/webhook management |
+
+The first member of a new organization becomes its `owner`. The BFF enforces the same boundaries as the UI.
+
+### Google OAuth
+
+1. Create a **Web application** OAuth client in Google Cloud.
+2. Add the authorized redirect URI: `http://localhost:3000/api/auth/callback/google` (use your real origin in production).
+3. Put the client ID/secret in `panel/.env.local` (or in the root `.env` for Compose).
+
+### Environment
+
+```bash
+cd panel
+cp .env.example .env.local
+# BRIDGE_URL, BRIDGE_ADMIN_TOKEN
+# DATABASE_URL, BETTER_AUTH_URL, BETTER_AUTH_SECRET
+# PANEL_ENCRYPTION_KEY (openssl rand -hex 32)
+# PRIMER_ADMIN, PANEL_ADMIN_EMAILS
+# GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+```
+
+### Local development
+
+```bash
+cd panel
+npm ci
+npm run db:push   # creates the Postgres schema with Drizzle
+npm run dev       # http://localhost:3000
+npm run test:e2e  # Playwright smoke tests
+```
+
+### Docker Compose
+
+Compose brings up the bridge, the panel, a Postgres instance, and a one-shot migration service:
+
+```bash
+# Fill WHATSAPP_API_TOKEN, WHATSAPP_ADMIN_TOKEN, BETTER_AUTH_SECRET,
+# PANEL_ENCRYPTION_KEY, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET in .env
+docker compose up -d --build
+```
+
+The panel is published at `127.0.0.1:3000`; the bridge remains internal (`127.0.0.1:8080`). The tenant key is entered once on `/onboarding` and stored encrypted in Postgres.
+
+### Security notes
+
+- Session cookies are HTTP-only; the browser only talks to the panel BFF.
+- The bridge admin token stays server-side and is used only for tenant provisioning.
+- Cross-tenant requests return `403`; non-owner writes to keys/rules/webhooks return `403`.
+- Rotate `GOOGLE_CLIENT_SECRET` if it was shared outside the local environment.
+
 ## Credits
 
 Original project created by [Luke Harries (@lharries)](https://github.com/lharries): [lharries/whatsapp-mcp](https://github.com/lharries/whatsapp-mcp). This fork preserves the original project credits and MIT license.

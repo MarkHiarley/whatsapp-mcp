@@ -45,3 +45,8 @@ Operate. Superfície de trabalho densa, previsível, com um único momento dimen
 - Gradient text, glass, sombra dura, kicker/eyebrow, números de seção decorativos.
 - Cards iguais de ícone+título+texto como estrutura; hero-metric (número grande + label + stats).
 - Monospace como fantasia; usar só para dados/medições.
+
+## Referências para refactor futuro
+
+- https://modulify.ai/templates — analisar depois os padrões de templates/blocks (composição de seções, densidade, empty states e blocos de dados) para uma passada de refactor do painel.
+
