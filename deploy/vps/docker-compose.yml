@@ -2,7 +2,7 @@ name: whatsapp-panel
 
 services:
   whatsapp-mcp:
-    image: ${BRIDGE_IMAGE:-ghcr.io/markhiarley/whatsapp-bridge:latest}
+    image: ${BRIDGE_IMAGE:-ghcr.io/markhiarley/whatsapp-mcp/bridge:latest}
     container_name: whatsapp-mcp
     env_file:
       - .env
@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
   panel-migrate:
-    image: ${PANEL_MIGRATE_IMAGE:-ghcr.io/markhiarley/whatsapp-panel-migrate:latest}
+    image: ${PANEL_MIGRATE_IMAGE:-ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:latest}
     container_name: whatsapp-panel-migrate
     depends_on:
       panel-db:
@@ -39,7 +39,7 @@ services:
     restart: "no"
 
   panel:
-    image: ${PANEL_IMAGE:-ghcr.io/markhiarley/whatsapp-panel:latest}
+    image: ${PANEL_IMAGE:-ghcr.io/markhiarley/whatsapp-mcp/panel:latest}
     container_name: whatsapp-panel
     depends_on:
       panel-db:

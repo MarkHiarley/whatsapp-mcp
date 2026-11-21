@@ -42,8 +42,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/markhiarley/whatsapp-bridge:latest
-            ghcr.io/markhiarley/whatsapp-bridge:${{ steps.meta.outputs.tag }}
+            ghcr.io/markhiarley/whatsapp-mcp/bridge:latest
+            ghcr.io/markhiarley/whatsapp-mcp/bridge:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -54,8 +54,8 @@ jobs:
           target: runner
           push: true
           tags: |
-            ghcr.io/markhiarley/whatsapp-panel:latest
-            ghcr.io/markhiarley/whatsapp-panel:${{ steps.meta.outputs.tag }}
+            ghcr.io/markhiarley/whatsapp-mcp/panel:latest
+            ghcr.io/markhiarley/whatsapp-mcp/panel:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -66,13 +66,14 @@ jobs:
           target: migrate
           push: true
           tags: |
-            ghcr.io/markhiarley/whatsapp-panel-migrate:latest
-            ghcr.io/markhiarley/whatsapp-panel-migrate:${{ steps.meta.outputs.tag }}
+            ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:latest
+            ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:${{ steps.meta.outputs.tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
   deploy:
     needs: build
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -101,9 +102,9 @@ jobs:
             set -euo pipefail
             cd /root/whatsapp-panel
             test -f .env || { echo "missing /root/whatsapp-panel/.env"; exit 1; }
-            export PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-panel:latest
-            export PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-panel-migrate:latest
-            export BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-bridge:latest
+            export PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/panel:latest
+            export PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:latest
+            export BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/bridge:latest
             echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
             docker compose pull panel-db panel-migrate panel whatsapp-mcp
             docker compose up -d --wait panel-db

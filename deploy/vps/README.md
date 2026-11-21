@@ -93,9 +93,9 @@ As imagens têm tag `sha-<short>`. No VPS:
 
 ```bash
 cd /root/whatsapp-panel
-PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-panel:sha-abc1234 \
-PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-panel-migrate:sha-abc1234 \
-BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-bridge:sha-abc1234 \
+PANEL_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/panel:sha-abc1234 \
+PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:sha-abc1234 \
+BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/bridge:sha-abc1234 \
 docker compose up -d panel whatsapp-mcp
 ```
 
