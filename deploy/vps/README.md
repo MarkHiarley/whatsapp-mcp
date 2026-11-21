@@ -32,7 +32,8 @@ Secrets (Settings → Secrets and variables → Actions):
 | `VPS_PORT` | `22022` |
 | `VPS_USER` | `root` |
 | `VPS_SSH_KEY` | chave privada de deploy (a pública em `/root/.ssh/authorized_keys`) |
-| `GHCR_PULL_TOKEN` | PAT com `read:packages` para o VPS puxar as imagens |
+
+As imagens no GHCR são privadas e o VPS faz o pull com o `GITHUB_TOKEN` do próprio workflow (válido durante o job). Não é necessário PAT de longa duração. Se o pacote for tornado público, o login pode ser removido.
 
 Environment `production` com proteção (reviewers) recomendado.
 
