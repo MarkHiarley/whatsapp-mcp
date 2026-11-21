@@ -1,8 +1,15 @@
+import os
 from dataclasses import fields, is_dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import List, Optional
 from typing_extensions import NotRequired, TypedDict
 from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+
+import approvals
+import audit
+import whatsapp
 from whatsapp import (
     search_contacts as whatsapp_search_contacts,
     list_messages as whatsapp_list_messages,
@@ -66,6 +73,14 @@ class MediaResult(ActionResult):
     file_path: NotRequired[str]
 
 
+class DraftDTO(TypedDict):
+    approval_id: str
+    kind: str
+    recipient: str
+    preview: str
+    expires_at: str
+
+
 class EventDTO(TypedDict):
     seq: int
     message_id: str
@@ -115,7 +130,19 @@ def _contract(value):
 # Initialize FastMCP server
 mcp = FastMCP("whatsapp")
 
-@mcp.tool()
+READ_ONLY = os.getenv("WHATSAPP_MCP_READ_ONLY", "").lower() in {"1", "true", "yes", "on"}
+ALLOW_DIRECT_SEND = os.getenv("WHATSAPP_MCP_ALLOW_DIRECT_SEND", "").lower() in {"1", "true", "yes", "on"}
+
+READ_ANNOTATIONS = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+DRAFT_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=False)
+DESTRUCTIVE_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=True, idempotentHint=False)
+CURSOR_ANNOTATIONS = ToolAnnotations(readOnlyHint=False, destructiveHint=False, idempotentHint=True)
+
+
+def read_tool(fn):
+    return mcp.tool(annotations=READ_ANNOTATIONS)(audit.audited(fn))
+
+@read_tool
 def search_contacts(query: str) -> List[ContactDTO]:
     """Search WhatsApp contacts by name or phone number.
     
@@ -125,7 +152,7 @@ def search_contacts(query: str) -> List[ContactDTO]:
     contacts = whatsapp_search_contacts(query)
     return _contract(contacts)
 
-@mcp.tool()
+@read_tool
 def list_messages(
     after: Optional[str] = None,
     before: Optional[str] = None,
@@ -166,7 +193,7 @@ def list_messages(
     )
     return _contract(messages)
 
-@mcp.tool()
+@read_tool
 def list_chats(
     query: Optional[str] = None,
     limit: int = 20,
@@ -192,7 +219,7 @@ def list_chats(
     )
     return _contract(chats)
 
-@mcp.tool()
+@read_tool
 def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[ChatDTO]:
     """Get WhatsApp chat metadata by JID.
     
@@ -203,7 +230,7 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[ChatD
     chat = whatsapp_get_chat(chat_jid, include_last_message)
     return _contract(chat)
 
-@mcp.tool()
+@read_tool
 def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[ChatDTO]:
     """Get WhatsApp chat metadata by sender phone number.
     
@@ -213,7 +240,7 @@ def get_direct_chat_by_contact(sender_phone_number: str) -> Optional[ChatDTO]:
     chat = whatsapp_get_direct_chat_by_contact(sender_phone_number)
     return _contract(chat)
 
-@mcp.tool()
+@read_tool
 def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[ChatDTO]:
     """Get all WhatsApp chats involving the contact.
     
@@ -225,7 +252,7 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[ChatDTO]
     chats = whatsapp_get_contact_chats(jid, limit, page)
     return _contract(chats)
 
-@mcp.tool()
+@read_tool
 def get_last_interaction(jid: str) -> Optional[MessageDTO]:
     """Get most recent WhatsApp message involving the contact.
     
@@ -235,7 +262,7 @@ def get_last_interaction(jid: str) -> Optional[MessageDTO]:
     message = whatsapp_get_last_interaction(jid)
     return _contract(message)
 
-@mcp.tool()
+@read_tool
 def get_message_context(
     message_id: str,
     before: int = 5,
@@ -251,7 +278,6 @@ def get_message_context(
     context = whatsapp_get_message_context(message_id, before, after)
     return _contract(context)
 
-@mcp.tool()
 def send_message(
     recipient: str,
     message: str
@@ -280,7 +306,6 @@ def send_message(
         "message": status_message
     }
 
-@mcp.tool()
 def send_file(recipient: str, media_path: str) -> ActionResult:
     """Send a file such as a picture, raw audio, video or document via WhatsApp to the specified recipient. For group messages use the JID.
     
@@ -293,6 +318,11 @@ def send_file(recipient: str, media_path: str) -> ActionResult:
         A dictionary containing success status and a status message
     """
     
+    try:
+        media_path = str(approvals.resolve_outbox_file(media_path))
+    except ValueError as exc:
+        return {"success": False, "message": str(exc)}
+
     # Call the whatsapp_send_file function
     success, status_message = whatsapp_send_file(recipient, media_path)
     return {
@@ -300,7 +330,6 @@ def send_file(recipient: str, media_path: str) -> ActionResult:
         "message": status_message
     }
 
-@mcp.tool()
 def send_audio_message(recipient: str, media_path: str) -> ActionResult:
     """Send any audio file as a WhatsApp audio message to the specified recipient. For group messages use the JID. If it errors due to ffmpeg not being installed, use send_file instead.
     
@@ -312,13 +341,128 @@ def send_audio_message(recipient: str, media_path: str) -> ActionResult:
     Returns:
         A dictionary containing success status and a status message
     """
+    try:
+        media_path = str(approvals.resolve_outbox_file(media_path))
+    except ValueError as exc:
+        return {"success": False, "message": str(exc)}
+
     success, status_message = whatsapp_audio_voice_message(recipient, media_path)
     return {
         "success": success,
         "message": status_message
     }
 
-@mcp.tool()
+def _tenant_id() -> str:
+    return whatsapp.WHATSAPP_TENANT_ID
+
+
+def _draft_dto(approval: dict, preview: str) -> DraftDTO:
+    return {
+        "approval_id": approval["approval_id"],
+        "kind": approval["kind"],
+        "recipient": approval["recipient"],
+        "preview": preview,
+        "expires_at": approvals.iso_from_epoch(approval["expires_at"]),
+    }
+
+
+def draft_message(recipient: str, message: str) -> DraftDTO:
+    """Create a message draft that a human must approve before it is sent.
+
+    This tool never sends anything. It returns an ``approval_id`` and the exact
+    preview. Call ``confirm_send`` only after the human has reviewed and approved
+    this draft.
+    """
+    if not recipient or not recipient.strip():
+        raise ValueError("recipient must be provided")
+    if message is None or not str(message).strip():
+        raise ValueError("message must be provided")
+    approval = approvals.create(
+        tenant_id=_tenant_id(),
+        kind="message",
+        recipient=recipient.strip(),
+        text=str(message),
+    )
+    return _draft_dto(approval, str(message))
+
+
+def draft_file(recipient: str, media_path: str) -> DraftDTO:
+    """Create a file draft confined to the outbox; sends nothing.
+
+    The file is hashed now and re-checked at confirmation time.
+    """
+    if not recipient or not recipient.strip():
+        raise ValueError("recipient must be provided")
+    path = approvals.resolve_outbox_file(media_path)
+    digest = approvals.hash_file(path)
+    approval = approvals.create(
+        tenant_id=_tenant_id(),
+        kind="file",
+        recipient=recipient.strip(),
+        file_path=path,
+        file_sha256=digest,
+    )
+    preview = f"{path.name} ({path.stat().st_size} bytes, sha256:{digest[:16]})"
+    return _draft_dto(approval, preview)
+
+
+def draft_audio_message(recipient: str, media_path: str) -> DraftDTO:
+    """Create an audio draft confined to the outbox; sends nothing."""
+    if not recipient or not recipient.strip():
+        raise ValueError("recipient must be provided")
+    path = approvals.resolve_outbox_file(media_path)
+    digest = approvals.hash_file(path)
+    approval = approvals.create(
+        tenant_id=_tenant_id(),
+        kind="audio",
+        recipient=recipient.strip(),
+        file_path=path,
+        file_sha256=digest,
+    )
+    preview = f"{path.name} ({path.stat().st_size} bytes, sha256:{digest[:16]})"
+    return _draft_dto(approval, preview)
+
+
+def confirm_send(approval_id: str, confirm: bool = False) -> ActionResult:
+    """Send a previously drafted action after explicit human approval.
+
+    ``confirm=true`` is required, and the approval must exist, belong to this
+    tenant, be unused and be younger than the configured TTL. Files are re-hashed
+    immediately before sending.
+    """
+    if not confirm:
+        return {
+            "success": False,
+            "message": "Human approval required: review the draft, then call confirm_send with confirm=true.",
+        }
+    approval = approvals.consume(tenant_id=_tenant_id(), approval_id=approval_id)
+    if approval is None:
+        return {
+            "success": False,
+            "message": "Approval not found, expired or already used. Create a new draft.",
+        }
+
+    kind = approval["kind"]
+    recipient = approval["recipient"]
+    if kind == "message":
+        success, status_message = whatsapp_send_message(recipient, approval.get("text") or "")
+    elif kind in {"file", "audio"}:
+        if not approvals.file_still_matches(approval):
+            return {
+                "success": False,
+                "message": "The approved file changed or left the outbox; create a new draft.",
+            }
+        if kind == "file":
+            success, status_message = whatsapp_send_file(recipient, approval["file_path"])
+        else:
+            success, status_message = whatsapp_audio_voice_message(recipient, approval["file_path"])
+    else:
+        return {"success": False, "message": f"Unsupported approval kind: {kind}"}
+
+    return {"success": success, "message": status_message}
+
+
+@read_tool
 def download_media(message_id: str, chat_jid: str) -> MediaResult:
     """Download media from a WhatsApp message and get the local file path.
     
@@ -343,7 +487,7 @@ def download_media(message_id: str, chat_jid: str) -> MediaResult:
             "message": "Failed to download media"
         }
 
-@mcp.tool()
+@read_tool
 def list_events(after: int = 0, rule: Optional[str] = None, limit: int = 50) -> List[EventDTO]:
     """List durable WhatsApp events for the tenant of this server process (WHATSAPP_TENANT_ID).
 
@@ -358,7 +502,7 @@ def list_events(after: int = 0, rule: Optional[str] = None, limit: int = 50) -> 
     events = whatsapp_list_events(after=after, rule=rule, limit=limit)
     return _contract(events)
 
-@mcp.tool()
+@read_tool
 def wait_for_events(after: int = 0, timeout_seconds: int = 30, rule: Optional[str] = None) -> List[EventDTO]:
     """Wait for new WhatsApp events for the tenant of this server process (WHATSAPP_TENANT_ID).
 
@@ -373,7 +517,7 @@ def wait_for_events(after: int = 0, timeout_seconds: int = 30, rule: Optional[st
     events = whatsapp_wait_for_events(after=after, timeout=timeout_seconds, rule=rule)
     return _contract(events)
 
-@mcp.tool()
+@read_tool
 def list_rules() -> List[RuleDTO]:
     """List the event rules of the tenant of this server process (WHATSAPP_TENANT_ID).
 
@@ -382,7 +526,6 @@ def list_rules() -> List[RuleDTO]:
     rules = whatsapp_list_rules()
     return _contract(rules)
 
-@mcp.tool()
 def ack_events(consumer_id: str, rule_id: str, seq: int) -> ActionResult:
     """Save the consumer cursor for a rule of the tenant of this server process (WHATSAPP_TENANT_ID).
 
@@ -398,6 +541,19 @@ def ack_events(consumer_id: str, rule_id: str, seq: int) -> ActionResult:
         "success": success,
         "message": status_message
     }
+
+if ALLOW_DIRECT_SEND and not READ_ONLY:
+    # Opt-in legacy tools: they send immediately and bypass the approval flow.
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_message))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_file))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(send_audio_message))
+
+if not READ_ONLY:
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_message))
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_file))
+    mcp.tool(annotations=DRAFT_ANNOTATIONS)(audit.audited(draft_audio_message))
+    mcp.tool(annotations=DESTRUCTIVE_ANNOTATIONS)(audit.audited(confirm_send))
+    mcp.tool(annotations=CURSOR_ANNOTATIONS)(audit.audited(ack_events))
 
 if __name__ == "__main__":
     # Initialize and run the server
