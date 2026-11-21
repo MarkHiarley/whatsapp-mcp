@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
-import { Check, MessagesSquare } from "lucide-react";
+import { Check } from "lucide-react";
+
+import { BrandMark } from "@/components/brand-mark";
 
 import { GoogleSignInButton } from "@/components/auth/google-sign-in";
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -21,12 +23,16 @@ export default async function LoginPage() {
     <main className="grid min-h-svh place-items-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-md bg-primary text-primary-foreground">
-            <MessagesSquare className="size-4" aria-hidden />
+          <span className="flex size-9 items-center justify-center rounded-[0.7rem] bg-primary text-highlight shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]">
+            <BrandMark />
           </span>
           <div className="leading-tight">
-            <p className="text-sm font-semibold">WhatsApp Bridge</p>
-            <p className="text-[11px] text-muted-foreground">painel operacional</p>
+            <p className="font-[family-name:var(--font-sora)] text-[13px] font-semibold tracking-tight">
+              WhatsApp Bridge
+            </p>
+            <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+              painel operacional
+            </p>
           </div>
         </div>
 
