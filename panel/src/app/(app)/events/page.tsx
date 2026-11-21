@@ -101,24 +101,34 @@ export default async function EventsPage({
                     : "Nenhum evento registrado ainda. Crie regras para começar a capturar mensagens."
                 }
                 action={
-                  <Link href="/rules" className={buttonVariants({ variant: "outline", size: "sm" })}>
-                    Ver regras
-                  </Link>
+                  after ? (
+                    <Link
+                      href={rule ? `/events?rule=${encodeURIComponent(rule)}` : "/events"}
+                      className={buttonVariants({ variant: "outline", size: "sm" })}
+                    >
+                      Voltar ao início
+                    </Link>
+                  ) : (
+                    <Link href="/rules" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                      Criar regra
+                    </Link>
+                  )
                 }
               />
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-16">seq</TableHead>
-                    <TableHead>horário</TableHead>
-                    <TableHead>chat</TableHead>
-                    <TableHead>remetente</TableHead>
-                    <TableHead>flags</TableHead>
-                    <TableHead>conteúdo</TableHead>
-                    <TableHead>mídia</TableHead>
-                  </TableRow>
-                </TableHeader>
+              <div className="overflow-x-auto">
+                <Table className="[&_td]:px-3 [&_td]:py-2.5 [&_th]:px-3">
+                  <TableHeader className="sticky top-0 z-10 bg-card">
+                    <TableRow>
+                      <TableHead className="w-16">seq</TableHead>
+                      <TableHead>horário</TableHead>
+                      <TableHead>chat</TableHead>
+                      <TableHead>remetente</TableHead>
+                      <TableHead>flags</TableHead>
+                      <TableHead>conteúdo</TableHead>
+                      <TableHead>mídia</TableHead>
+                    </TableRow>
+                  </TableHeader>
                 <TableBody>
                   {events.map((event) => (
                     <TableRow key={event.seq}>
@@ -152,7 +162,8 @@ export default async function EventsPage({
                     </TableRow>
                   ))}
                 </TableBody>
-              </Table>
+                </Table>
+              </div>
             )}
           </CardContent>
         </Card>

@@ -123,7 +123,7 @@ export default async function ChatDetailPage({
                   >
                     <div
                       className={cn(
-                        "max-w-[85%] min-w-0 rounded-2xl px-3 py-2 text-sm shadow-xs sm:max-w-[70%]",
+                        "max-w-[85%] min-w-0 rounded-lg px-3 py-2 text-sm shadow-xs sm:max-w-[70%]",
                         message.is_from_me
                           ? "rounded-br-sm bg-primary text-primary-foreground"
                           : "rounded-bl-sm bg-muted text-foreground",
@@ -152,7 +152,7 @@ export default async function ChatDetailPage({
               </>
             )}
           </CardContent>
-          <CardFooter className="flex-col items-stretch gap-2">
+          <CardFooter className="sticky bottom-0 z-10 flex-col items-stretch gap-2 bg-card">
             {connected ? null : (
               <p className="text-xs text-muted-foreground">
                 Sessão não está conectada — o envio fica desabilitado até o pareamento terminar.

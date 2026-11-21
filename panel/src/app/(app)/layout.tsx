@@ -43,6 +43,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       bridgeUrl={BRIDGE_URL}
       isAdmin={context.isAdmin}
       role={context.role}
+      showBanner={process.env.NODE_ENV !== "production"}
+      userName={context.name}
+      userEmail={context.email}
     >
       {children}
     </AppShell>

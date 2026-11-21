@@ -28,9 +28,9 @@ Bridge WhatsApp multi-tenant (Go) + MCP server (Python) + painel web (Next.js). 
 ## Restrições
 
 - Local-first, uma instância, API em `127.0.0.1`; o painel é a única entrada pública.
-- Tokens de tenant nunca chegam ao browser; o BFF resolve credenciais no servidor.
+- Login com Google (Better Auth + Postgres). Papéis: `admin` (`PRIMER_ADMIN`/`PANEL_ADMIN_EMAILS`), `owner` (keys/regras/webhooks do tenant) e `member` (leitura, envio, eventos).
+- Cada organização mapeia um tenant; a key fica cifrada com AES-256-GCM no Postgres e nunca chega ao browser.
 - Dados reais do bridge; sem mock no produto.
-- Fase atual: sem login; Better Auth + Postgres entram na fase seguinte.
 - Sem páginas de marketing, sem app mobile.
 
 ## Não-objetivos

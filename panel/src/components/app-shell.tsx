@@ -17,6 +17,8 @@ import {
 
 import { STATUS_DOT_CLASSES, STATUS_LABELS, type TenantStatusValue } from "@/lib/status";
 import type { PanelRole } from "@/lib/session";
+import { initials } from "@/lib/format";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 
@@ -92,7 +94,7 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
       )}
     >
       <item.icon
-        className={cn("size-4 shrink-0", active ? "text-sidebar-primary" : "text-sidebar-foreground/50")}
+        className={cn("size-4 shrink-0", active ? "text-sidebar-accent-foreground" : "text-muted-foreground")}
         aria-hidden
       />
       <span className="flex-1">{item.label}</span>
@@ -117,7 +119,7 @@ function TenantCard({
   return (
     <Link
       href="/tenants"
-      className="mx-3 mt-3 block rounded-xl border border-sidebar-border bg-sidebar-accent/40 p-3 transition-colors hover:bg-sidebar-accent/70"
+      className="mx-3 mt-3 block rounded-lg border border-sidebar-border bg-background p-3 transition-colors hover:bg-muted"
     >
       <div className="flex items-center gap-2.5">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent text-accent-foreground">
@@ -131,7 +133,7 @@ function TenantCard({
                 "rounded px-1 py-0.5 text-[9px] tracking-[0.08em]",
                 role === "admin"
                   ? "bg-highlight/20 text-sidebar-accent-foreground"
-                  : "bg-white/10 text-sidebar-foreground/70",
+                  : "bg-muted text-muted-foreground",
               )}
             >
               {role}
@@ -159,6 +161,9 @@ export function AppShell({
   bridgeUrl,
   isAdmin = false,
   role = "member",
+  showBanner = false,
+  userName = "",
+  userEmail = "",
 }: {
   header: ReactNode;
   children: ReactNode;
@@ -167,6 +172,9 @@ export function AppShell({
   bridgeUrl: string;
   isAdmin?: boolean;
   role?: PanelRole;
+  showBanner?: boolean;
+  userName?: string;
+  userEmail?: string;
 }) {
   const pathname = usePathname();
   const host = bridgeUrl.replace(/^https?:\/\//, "").replace(/\/api\/v1\/?$/, "");
@@ -177,19 +185,26 @@ export function AppShell({
 
   return (
     <div className="min-h-svh bg-background">
-      <div className="fixed inset-x-0 top-0 z-50 flex h-10 items-center px-2 sm:px-4">
-        <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-banner px-3 py-2 text-xs font-medium text-banner-foreground">
-          <Activity className="size-3.5 shrink-0" aria-hidden />
-          <span className="truncate">
-            Ambiente local · API em <span className="font-mono">{host}</span>
-          </span>
-          <Link href="/settings" className="shrink-0 underline underline-offset-4 hover:no-underline">
-            Configurar
-          </Link>
+      {showBanner ? (
+        <div className="fixed inset-x-0 top-0 z-50 flex h-10 items-center px-2 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2 rounded-md bg-banner px-3 py-2 text-xs font-medium text-banner-foreground">
+            <Activity className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">
+              Ambiente local · API em <span className="font-mono">{host}</span>
+            </span>
+            <Link href="/settings" className="shrink-0 underline underline-offset-4 hover:no-underline">
+              Configurar
+            </Link>
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <aside className="fixed bottom-0 left-0 top-10 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex">
+      <aside
+        className={cn(
+          "fixed bottom-0 left-0 z-40 hidden w-64 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex",
+          showBanner ? "top-10" : "top-0",
+        )}
+      >
         <div className="flex h-16 items-center border-b border-sidebar-border px-4">
           <Brand />
         </div>
@@ -211,17 +226,37 @@ export function AppShell({
         <div className="border-t border-sidebar-border p-3">
           <Link
             href="/settings"
-            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground"
+            className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <Settings className="size-3.5" aria-hidden />
             Configuração do tenant
           </Link>
-          <SignOutButton className="mt-1 w-full justify-start text-sidebar-foreground/60 hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground" />
+          {userEmail ? (
+            <div className="mt-2 flex items-center gap-2 rounded-lg px-1.5 py-1.5">
+              <Avatar className="size-8 shrink-0">
+                <AvatarFallback className="bg-highlight text-[11px] font-semibold text-highlight-foreground">
+                  {initials(userName || userEmail)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-xs font-medium">{userName || "Conta"}</p>
+                <p className="truncate text-[10px] text-muted-foreground">{userEmail}</p>
+              </div>
+              <SignOutButton compact className="shrink-0" />
+            </div>
+          ) : (
+            <SignOutButton className="mt-1 w-full justify-start text-muted-foreground hover:bg-muted hover:text-foreground" />
+          )}
         </div>
       </aside>
 
-      <div className="flex min-h-svh flex-col pt-10 lg:pl-64">
-        <header className="sticky top-10 z-30 border-b bg-background/80 backdrop-blur supports-backdrop-filter:bg-background/65">
+      <div className={cn("flex min-h-svh flex-col lg:pl-64", showBanner && "pt-10")}>
+        <header
+          className={cn(
+            "sticky z-30 border-b bg-background",
+            showBanner ? "top-10" : "top-0",
+          )}
+        >
           <div className="flex h-14 items-center gap-3 px-4 sm:px-6">
             <div className="lg:hidden">
               <Brand compact />
@@ -239,7 +274,7 @@ export function AppShell({
                   className={cn(
                     "flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium whitespace-nowrap transition-colors",
                     active
-                      ? "bg-secondary text-secondary-foreground"
+                      ? "bg-highlight text-highlight-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
                   )}
                 >
