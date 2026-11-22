@@ -181,6 +181,7 @@ class Chat:
     last_message: Optional[str] = None
     last_sender: Optional[str] = None
     last_is_from_me: Optional[bool] = None
+    last_media_type: Optional[str] = None
 
     @property
     def is_group(self) -> bool:
@@ -207,13 +208,17 @@ def _chat_from_row(conn, row):
         jid = f"{identity[0]}@s.whatsapp.net"
         if identity[2] != identity[0]:
             name = identity[2]
+    content = row[3]
+    media_type = row[6] if len(row) > 6 else None
+    preview = content if content else (f"[{media_type}]" if media_type else None)
     return Chat(
         jid=jid,
         name=name,
         last_message_time=datetime.fromisoformat(row[2]) if row[2] else None,
-        last_message=row[3],
+        last_message=preview,
         last_sender=row[4],
         last_is_from_me=row[5],
+        last_media_type=media_type,
     )
 
 
@@ -484,12 +489,12 @@ def list_chats(
     try:
         conn = _connect()
         message_columns = (
-            "messages.content, messages.sender, messages.is_from_me"
-            if include_last_message else "NULL, NULL, NULL"
+            "messages.content, messages.sender, messages.is_from_me, messages.media_type"
+            if include_last_message else "NULL, NULL, NULL, NULL"
         )
         join = (
             "LEFT JOIN ("
-            "SELECT chat_jid, content, sender, is_from_me, "
+            "SELECT chat_jid, content, sender, is_from_me, media_type, "
             "ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn "
             "FROM messages"
             ") messages ON messages.chat_jid = chats.jid AND messages.rn = 1"
@@ -569,10 +574,10 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Chat]:
         placeholders = ",".join("?" * len(aliases))
         rows = conn.execute(f"""
             SELECT c.jid, c.name, c.last_message_time,
-                   m.content, m.sender, m.is_from_me
+                   m.content, m.sender, m.is_from_me, m.media_type
             FROM chats c
             LEFT JOIN (
-                SELECT chat_jid, content, sender, is_from_me,
+                SELECT chat_jid, content, sender, is_from_me, media_type,
                        ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn
                 FROM messages
             ) m ON m.chat_jid = c.jid AND m.rn = 1
@@ -641,10 +646,10 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[Chat]
         conn = _connect()
         aliases = _identity_aliases(conn, chat_jid)
         placeholders = ",".join("?" * len(aliases))
-        message_columns = "m.content, m.sender, m.is_from_me" if include_last_message else "NULL, NULL, NULL"
+        message_columns = "m.content, m.sender, m.is_from_me, m.media_type" if include_last_message else "NULL, NULL, NULL, NULL"
         join = (
             "LEFT JOIN ("
-            "SELECT chat_jid, content, sender, is_from_me, "
+            "SELECT chat_jid, content, sender, is_from_me, media_type, "
             "ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn "
             "FROM messages"
             ") m ON m.chat_jid = c.jid AND m.rn = 1"

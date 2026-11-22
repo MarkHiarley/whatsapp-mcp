@@ -51,6 +51,7 @@ class ChatDTO(TypedDict):
     last_message: Optional[str]
     last_sender: Optional[str]
     last_is_from_me: Optional[bool]
+    last_media_type: NotRequired[str]
 
 
 class ContactDTO(TypedDict):
