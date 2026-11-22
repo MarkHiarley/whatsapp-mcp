@@ -3,9 +3,11 @@ import { connection } from "next/server";
 import { Plug, ShieldCheck } from "lucide-react";
 
 import { McpTokenCard } from "@/components/mcp-token-card";
+import { McpTokenList } from "@/components/mcp-token-list";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { listMcpTokens } from "@/lib/mcp-tokens";
 import { requireTenantContext } from "@/lib/session";
 
 export const instant = false;
@@ -31,6 +33,17 @@ export default async function McpPage() {
   const endpoint = await endpointUrl();
   const configured = Boolean(endpoint && process.env.MCP_INTERNAL_URL);
   const canManage = context.role === "admin" || context.role === "owner";
+  const tokens = canManage
+    ? (await listMcpTokens(context.organizationId)).map((token) => ({
+        id: token.id,
+        name: token.name,
+        scopes: token.scopes,
+        tenantId: token.tenantId,
+        createdAt: token.createdAt.toISOString(),
+        lastUsedAt: token.lastUsedAt?.toISOString() ?? null,
+        revokedAt: token.revokedAt?.toISOString() ?? null,
+      }))
+    : [];
 
   return (
     <>
@@ -72,7 +85,10 @@ export default async function McpPage() {
           </Card>
 
           {canManage ? (
-            <McpTokenCard endpoint={configured ? endpoint : null} />
+            <>
+              <McpTokenCard endpoint={configured ? endpoint : null} />
+              <McpTokenList tokens={tokens} />
+            </>
           ) : (
             <Card>
               <CardContent className="p-4 text-sm text-muted-foreground">

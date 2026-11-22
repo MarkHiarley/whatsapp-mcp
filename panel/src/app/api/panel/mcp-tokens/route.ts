@@ -65,7 +65,12 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
-    const status = code === "TENANT_CREDENTIAL_NOT_FOUND" ? 400 : 500;
+    const status =
+      code === "TENANT_CREDENTIAL_NOT_FOUND" || code === "TENANT_NOT_FOUND" || code === "TENANT_KEY_INVALID"
+        ? 400
+        : code === "BRIDGE_NOT_CONFIGURED" || code === "BRIDGE_UNAVAILABLE"
+          ? 503
+          : 500;
     return NextResponse.json({ error: code }, { status });
   }
 }

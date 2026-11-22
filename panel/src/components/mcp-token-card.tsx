@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, Copy, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,6 +26,7 @@ function copy(text: string, label: string) {
 }
 
 export function McpTokenCard({ endpoint }: { endpoint: string | null }) {
+  const router = useRouter();
   const [name, setName] = useState("Meu agente");
   const [write, setWrite] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -67,6 +69,7 @@ export function McpTokenCard({ endpoint }: { endpoint: string | null }) {
     }
     setCreated((await response.json()) as CreatedToken);
     toast.success("Token criado. Copie agora: ele não será exibido novamente.");
+    router.refresh();
   }
 
   return (

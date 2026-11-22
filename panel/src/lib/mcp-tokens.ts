@@ -26,6 +26,32 @@ function normalizeScopes(scopes: string[]): McpScope[] {
   return Array.from(new Set<McpScope>(["read", ...requested]));
 }
 
+async function verifyBridgeCredential(tenantId: string, apiToken: string): Promise<void> {
+  const base = process.env.BRIDGE_URL?.trim().replace(/\/+$/, "");
+  if (!base) {
+    throw new Error("BRIDGE_NOT_CONFIGURED");
+  }
+  let response: Response;
+  try {
+    response = await fetch(`${base}/tenants/${encodeURIComponent(tenantId)}/status`, {
+      headers: { Authorization: `Bearer ${apiToken}` },
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    throw new Error("BRIDGE_UNAVAILABLE");
+  }
+  if (response.status === 404) {
+    throw new Error("TENANT_NOT_FOUND");
+  }
+  if (response.status === 401 || response.status === 403) {
+    throw new Error("TENANT_KEY_INVALID");
+  }
+  if (!response.ok) {
+    throw new Error("BRIDGE_UNAVAILABLE");
+  }
+}
+
 export async function createMcpToken(input: {
   organizationId: string;
   userId: string;
@@ -41,6 +67,7 @@ export async function createMcpToken(input: {
     throw new Error("TENANT_CREDENTIAL_NOT_FOUND");
   }
   const tenantId = credential[0].tenantId;
+  await verifyBridgeCredential(tenantId, decryptSecret(credential[0].encryptedToken));
 
   const token = `mcp_${randomBytes(32).toString("base64url")}`;
   const scopes = normalizeScopes(input.scopes);
