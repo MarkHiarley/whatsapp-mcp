@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "panel/**"
+      - "whatsapp-bridge/**"
+      - "whatsapp-mcp-server/**"
+      - "Dockerfile"
+      - "docker-entrypoint.sh"
       - "deploy/vps/**"
       - ".github/workflows/deploy-panel.yml"
   workflow_dispatch:
