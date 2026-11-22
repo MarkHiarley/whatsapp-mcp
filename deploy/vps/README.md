@@ -25,7 +25,7 @@ Secrets (Settings → Secrets and variables → Actions):
 
 | Secret | Valor |
 |---|---|
-| `VPS_HOST` | `129.121.50.239` |
+| `VPS_HOST` | endereço da VPS (configurado apenas no secret do GitHub) |
 | `VPS_PORT` | `22022` |
 | `VPS_USER` | `root` |
 | `VPS_SSH_KEY` | chave privada de deploy (a pública em `/root/.ssh/authorized_keys`) |
