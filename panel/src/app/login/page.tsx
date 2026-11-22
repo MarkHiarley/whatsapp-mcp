@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Check } from "lucide-react";
 
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-logo";
 
 import { GoogleSignInButton } from "@/components/auth/google-sign-in";
 import { SignOutButton } from "@/components/auth/sign-out-button";
@@ -23,8 +23,8 @@ export default async function LoginPage() {
     <main className="grid min-h-svh place-items-center bg-background px-4 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2.5">
-          <span className="flex size-9 items-center justify-center rounded-[0.7rem] bg-primary text-highlight shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]">
-            <BrandMark />
+          <span className="flex size-9 items-center justify-center rounded-[0.7rem] bg-white p-1 ring-1 ring-black/5 dark:bg-[#f6f6f3]">
+            <BrandLogo />
           </span>
           <div className="leading-tight">
             <p className="font-[family-name:var(--font-sora)] text-[13px] font-semibold tracking-tight">

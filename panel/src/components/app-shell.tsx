@@ -19,7 +19,7 @@ import { STATUS_DOT_CLASSES, STATUS_LABELS, type TenantStatusValue } from "@/lib
 import type { PanelRole } from "@/lib/session";
 import { initials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { BrandMark } from "@/components/brand-mark";
+import { BrandLogo } from "@/components/brand-logo";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TenantSwitcher } from "@/components/tenant-switcher";
@@ -70,8 +70,8 @@ function isActive(pathname: string, href: string): boolean {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/" className="flex min-w-0 items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-[0.7rem] bg-sidebar-primary text-highlight shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]">
-        <BrandMark />
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-[0.7rem] bg-white p-1 ring-1 ring-black/5 dark:bg-[#f6f6f3]">
+        <BrandLogo />
       </span>
       {compact ? null : (
         <span className="flex min-w-0 flex-col leading-tight">
