@@ -28,7 +28,6 @@ function normalizeScopes(scopes: string[]): McpScope[] {
 
 export async function createMcpToken(input: {
   organizationId: string;
-  tenantId: string;
   userId: string;
   name: string;
   scopes: string[];
@@ -36,11 +35,12 @@ export async function createMcpToken(input: {
   const credential = await db
     .select()
     .from(tenantCredentials)
-    .where(and(eq(tenantCredentials.organizationId, input.organizationId), eq(tenantCredentials.tenantId, input.tenantId)))
+    .where(eq(tenantCredentials.organizationId, input.organizationId))
     .limit(1);
   if (!credential[0]) {
     throw new Error("TENANT_CREDENTIAL_NOT_FOUND");
   }
+  const tenantId = credential[0].tenantId;
 
   const token = `mcp_${randomBytes(32).toString("base64url")}`;
   const scopes = normalizeScopes(input.scopes);
@@ -49,7 +49,7 @@ export async function createMcpToken(input: {
   await db.insert(mcpToken).values({
     id,
     organizationId: input.organizationId,
-    tenantId: input.tenantId,
+    tenantId,
     name: input.name.trim().slice(0, 80) || "Agente",
     tokenHash: hashToken(token),
     scopes: JSON.stringify(scopes),
