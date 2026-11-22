@@ -9,6 +9,7 @@ import {
   KeyRound,
   LayoutDashboard,
   MessagesSquare,
+  Plug,
   QrCode,
   Settings,
   Webhook,
@@ -43,6 +44,7 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
     label: "Automação",
     items: [
       { href: "/webhooks", label: "Webhooks", icon: Webhook },
+      { href: "/mcp", label: "MCP", icon: Plug },
     ],
   },
   {
