@@ -106,10 +106,11 @@ jobs:
             export PANEL_MIGRATE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:latest
             export BRIDGE_IMAGE=ghcr.io/markhiarley/whatsapp-mcp/bridge:latest
             echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-            docker compose pull panel-db panel-migrate panel whatsapp-mcp
+            docker compose pull panel-db panel-migrate panel whatsapp-mcp whatsapp-mcp-http
             docker compose up -d --wait panel-db
             docker compose run --rm --no-deps panel-migrate
             docker compose up -d whatsapp-mcp
             docker compose up -d panel
+            docker compose up -d whatsapp-mcp-http
             docker logout ghcr.io
             docker image prune -f --filter "until=168h"

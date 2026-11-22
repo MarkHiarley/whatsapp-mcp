@@ -132,15 +132,23 @@ def _contract(value):
 # request to one tenant; STDIO keeps the local environment credentials.
 REMOTE = remote.transport() == "streamable-http"
 if REMOTE:
-    REMOTE_TOKENS = remote.load_tokens()
-    if not REMOTE_TOKENS:
-        raise RuntimeError("HTTP mode requires WHATSAPP_MCP_AUTH_TOKENS_FILE or WHATSAPP_MCP_AUTH_TOKENS")
+    INTROSPECT_URL = os.getenv("WHATSAPP_MCP_INTROSPECT_URL", "").strip()
+    INTROSPECT_SECRET = os.getenv("WHATSAPP_MCP_INTROSPECT_SECRET", "").strip()
+    if INTROSPECT_URL:
+        if not INTROSPECT_SECRET:
+            raise RuntimeError("WHATSAPP_MCP_INTROSPECT_SECRET is required with WHATSAPP_MCP_INTROSPECT_URL")
+        verifier = remote.IntrospectionTokenStore(INTROSPECT_URL, INTROSPECT_SECRET)
+    else:
+        REMOTE_TOKENS = remote.load_tokens()
+        if not REMOTE_TOKENS:
+            raise RuntimeError("HTTP mode requires WHATSAPP_MCP_INTROSPECT_URL or a token file")
+        verifier = remote.TokenStore(REMOTE_TOKENS)
     mcp = remote.ScopedFastMCP(
         "whatsapp",
         host=remote.http_host(),
         port=remote.http_port(),
         streamable_http_path=remote.http_path(),
-        token_verifier=remote.TokenStore(REMOTE_TOKENS),
+        token_verifier=verifier,
         auth=remote.auth_settings(),
         transport_security=remote.transport_security(),
     )

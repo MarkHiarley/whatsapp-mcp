@@ -6,7 +6,7 @@ O workflow `.github/workflows/deploy-panel.yml` publica três imagens no GHCR (b
 
 ```
 Cloudflare Tunnel (dashboard)
-  panel.isaacvshiarley.cloud ──► http://whatsapp-panel:3000   (default-app-network)
+  <panel-host> ──► http://whatsapp-panel:3000   (default-app-network)
 
 stack whatsapp-panel
   ├─ whatsapp-mcp        → bridge Go + sessão em /root/whatsapp-mcp/data
@@ -44,11 +44,16 @@ cp deploy/vps/.env.example .env   # preencha e chmod 600
 
 O `.env` precisa de:
 - `PANEL_DB_PASSWORD`, `BETTER_AUTH_SECRET`, `PANEL_ENCRYPTION_KEY`
-- `BETTER_AUTH_URL=https://panel.isaacvshiarley.cloud`
+- `BETTER_AUTH_URL=https://<panel-host>`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `PRIMER_ADMIN`, `PANEL_ADMIN_EMAILS`
 - `WHATSAPP_API_TOKEN` (a mesma key da sessão em `/root/whatsapp-mcp/data/tenants.json`)
 - `WHATSAPP_ADMIN_TOKEN` e `BRIDGE_ADMIN_TOKEN` com o **mesmo** valor
+- `MCP_PUBLIC_URL=https://<panel-host>` (origem pública do painel)
+- `MCP_INTERNAL_URL=http://whatsapp-mcp-http:8765` (proxy interno do painel)
+- `MCP_INTERNAL_INTROSPECT_URL=http://whatsapp-panel:3000/api/internal/mcp/introspect`
+- `MCP_INTROSPECT_SECRET` gerado com `openssl rand -hex 32`
+- `MCP_ALLOWED_HOSTS=whatsapp-mcp-http:8765`
 
 Copie a sessão para `/root/whatsapp-mcp/data` com o bridge local **parado** (nunca dois clients na mesma sessão):
 
@@ -57,11 +62,16 @@ rsync -a ./data/ vps:/root/whatsapp-mcp/data/
 ```
 
 No dashboard Cloudflare (tunnel token-based):
-- Public hostname `panel.isaacvshiarley.cloud` → `http://whatsapp-panel:3000`
+- Public hostname `<panel-host>` → `http://whatsapp-panel:3000`
+
 - Access policy para o painel (e-mail/OTP ou IdP).
 
+O endpoint MCP fica no mesmo host: `https://<panel-host>/api/mcp`. O painel faz proxy para `whatsapp-mcp-http` na rede Docker; não é necessário abrir outra porta nem criar outro hostname.
+
+O MCP HTTP valida os tokens opacos via introspecção no painel. O painel guarda apenas o hash; a key do bridge nunca vai para o browser.
+
 No Google Cloud:
-- Authorized redirect URI: `https://panel.isaacvshiarley.cloud/api/auth/callback/google`
+- Authorized redirect URI: `https://<panel-host>/api/auth/callback/google`
 
 ## Bootstrap manual (antes do primeiro CD)
 
