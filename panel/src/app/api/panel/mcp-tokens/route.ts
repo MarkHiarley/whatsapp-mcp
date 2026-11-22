@@ -49,7 +49,6 @@ export async function POST(request: Request) {
   try {
     const created = await createMcpToken({
       organizationId: context.organizationId,
-      tenantId: context.tenantId,
       userId: context.userId,
       name,
       scopes,
