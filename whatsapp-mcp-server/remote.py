@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
@@ -126,6 +128,54 @@ class ScopedFastMCP(FastMCP):
         if token is not None and "write" not in token.scopes:
             return [tool for tool in tools if tool.name not in WRITE_TOOL_NAMES]
         return tools
+
+
+class IntrospectionTokenStore(TokenVerifier):
+    """Validate opaque tokens against the panel and receive the tenant/key.
+
+    The panel owns hashes and tenant credentials; this process never reads a
+    token file in this mode.
+    """
+
+    def __init__(self, url: str, secret: str, ttl_seconds: float = 5.0):
+        self._url = url
+        self._secret = secret
+        self._ttl = max(1.0, ttl_seconds)
+        self._cache: dict[str, tuple[float, AccessToken | None]] = {}
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        now = time.monotonic()
+        cached = self._cache.get(token)
+        if cached and cached[0] > now:
+            return cached[1]
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                response = await client.post(
+                    self._url,
+                    headers={"Authorization": f"Bearer {self._secret}"},
+                    json={"token": token},
+                )
+        except Exception:
+            response = None
+        access: AccessToken | None = None
+        if response is not None and response.status_code == 200:
+            try:
+                data = response.json()
+                tenant = whatsapp.validate_tenant_id(str(data["tenant"]))
+                api_token = str(data["api_token"])
+                scopes = [str(scope) for scope in data.get("scopes", ["read"])]
+                if scopes and set(scopes).issubset(ALLOWED_SCOPES):
+                    access = AccessToken(
+                        token=token,
+                        client_id=str(data.get("client_id") or f"mcp-{tenant}"),
+                        scopes=scopes,
+                        subject=str(data.get("subject") or tenant),
+                        claims={"tenant": tenant, "api_token": api_token},
+                    )
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+                access = None
+        self._cache[token] = (now + self._ttl, access)
+        return access
 
 
 class TokenStore(TokenVerifier):

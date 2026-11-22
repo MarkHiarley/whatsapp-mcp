@@ -12,6 +12,34 @@ services:
       - /root/whatsapp-mcp/data:/app/whatsapp-bridge/store
     restart: unless-stopped
 
+  whatsapp-mcp-http:
+    image: ${BRIDGE_IMAGE:-ghcr.io/markhiarley/whatsapp-mcp/bridge:latest}
+    container_name: whatsapp-mcp-http
+    depends_on:
+      - whatsapp-mcp
+      - panel
+    env_file:
+      - .env
+    environment:
+      WHATSAPP_MCP_TRANSPORT: streamable-http
+      WHATSAPP_MCP_HTTP_HOST: 0.0.0.0
+      WHATSAPP_MCP_HTTP_PORT: "8765"
+      WHATSAPP_MCP_HTTP_PATH: /api/mcp
+      WHATSAPP_MCP_PUBLIC_URL: ${MCP_PUBLIC_URL:?configure MCP_PUBLIC_URL in .env}
+      WHATSAPP_MCP_INTROSPECT_URL: ${MCP_INTERNAL_INTROSPECT_URL:?configure MCP_INTERNAL_INTROSPECT_URL in .env}
+      WHATSAPP_MCP_INTROSPECT_SECRET: ${MCP_INTROSPECT_SECRET:?configure MCP_INTROSPECT_SECRET in .env}
+      WHATSAPP_MCP_ALLOWED_HOSTS: ${MCP_ALLOWED_HOSTS:?configure MCP_ALLOWED_HOSTS in .env}
+      WHATSAPP_API_BASE_URL: http://whatsapp-mcp:8080/api/v1
+      WHATSAPP_STORE_DIR: /app/whatsapp-bridge/store
+      TZ: America/Sao_Paulo
+    entrypoint: ["/app/whatsapp-mcp-server/.venv/bin/python", "/app/whatsapp-mcp-server/main.py"]
+    working_dir: /app/whatsapp-mcp-server
+    volumes:
+      - /root/whatsapp-mcp/data:/app/whatsapp-bridge/store
+    expose:
+      - "8765"
+    restart: unless-stopped
+
   panel-db:
     image: postgres:17-alpine
     container_name: whatsapp-panel-db

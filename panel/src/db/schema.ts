@@ -198,3 +198,27 @@ export const tenantCredentials = pgTable(
   (table) => [uniqueIndex("tenant_credentials_tenant_idx").on(table.tenantId)],
 );
 
+
+export const mcpToken = pgTable(
+  "mcp_token",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organization.id, { onDelete: "cascade" }),
+    tenantId: text("tenant_id").notNull(),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    scopes: text("scopes").notNull(),
+    createdBy: text("created_by")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastUsedAt: timestamp("last_used_at"),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [
+    uniqueIndex("mcp_token_hash_uidx").on(table.tokenHash),
+    index("mcp_token_organization_idx").on(table.organizationId),
+  ],
+);
