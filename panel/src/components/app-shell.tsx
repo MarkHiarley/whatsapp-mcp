@@ -18,6 +18,7 @@ import { STATUS_DOT_CLASSES, STATUS_LABELS, type TenantStatusValue } from "@/lib
 import type { PanelRole } from "@/lib/session";
 import { initials } from "@/lib/format";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { BrandMark } from "@/components/brand-mark";
 import { cn } from "@/lib/utils";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { TenantSwitcher } from "@/components/tenant-switcher";
@@ -67,13 +68,17 @@ function isActive(pathname: string, href: string): boolean {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/" className="flex min-w-0 items-center gap-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-sidebar-primary text-sidebar-primary-foreground">
-        <MessagesSquare className="size-4" aria-hidden />
+      <span className="flex size-9 shrink-0 items-center justify-center rounded-[0.7rem] bg-sidebar-primary text-highlight shadow-[inset_0_1px_0_rgb(255_255_255/0.18)]">
+        <BrandMark />
       </span>
       {compact ? null : (
         <span className="flex min-w-0 flex-col leading-tight">
-          <span className="truncate text-sm font-semibold">WhatsApp Bridge</span>
-          <span className="truncate text-[11px] text-muted-foreground">painel operacional</span>
+          <span className="truncate font-[family-name:var(--font-sora)] text-[13px] font-semibold tracking-tight">
+            WhatsApp Bridge
+          </span>
+          <span className="truncate text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">
+            painel operacional
+          </span>
         </span>
       )}
     </Link>

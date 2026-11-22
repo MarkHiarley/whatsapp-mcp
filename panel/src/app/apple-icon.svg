@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40" role="img" aria-label="WhatsApp Bridge">
+  <rect width="40" height="40" rx="10" fill="#167a3a"/>
+  <path fill="#e4f07a" fill-rule="evenodd" clip-rule="evenodd" d="M8 12h24a5 5 0 0 1 5 5v9a5 5 0 0 1-5 5H22l-6 4v-4H8a5 5 0 0 1-5-5v-9a5 5 0 0 1 5-5Zm6 16h3v-6a3 3 0 0 1 6 0v6h3v-6a6 6 0 0 0-12 0v6Z"/>
+</svg>
