@@ -488,8 +488,11 @@ def list_chats(
             if include_last_message else "NULL, NULL, NULL"
         )
         join = (
-            "LEFT JOIN messages ON chats.jid = messages.chat_jid "
-            "AND chats.last_message_time = messages.timestamp"
+            "LEFT JOIN ("
+            "SELECT chat_jid, content, sender, is_from_me, "
+            "ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn "
+            "FROM messages"
+            ") messages ON messages.chat_jid = chats.jid AND messages.rn = 1"
             if include_last_message else ""
         )
         rows = conn.execute(f"""
@@ -568,8 +571,11 @@ def get_contact_chats(jid: str, limit: int = 20, page: int = 0) -> List[Chat]:
             SELECT c.jid, c.name, c.last_message_time,
                    m.content, m.sender, m.is_from_me
             FROM chats c
-            LEFT JOIN messages m ON c.jid = m.chat_jid
-                AND c.last_message_time = m.timestamp
+            LEFT JOIN (
+                SELECT chat_jid, content, sender, is_from_me,
+                       ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn
+                FROM messages
+            ) m ON m.chat_jid = c.jid AND m.rn = 1
             WHERE c.jid IN ({placeholders}) OR EXISTS (
                 SELECT 1 FROM messages sender_messages
                 WHERE sender_messages.chat_jid = c.jid
@@ -637,7 +643,11 @@ def get_chat(chat_jid: str, include_last_message: bool = True) -> Optional[Chat]
         placeholders = ",".join("?" * len(aliases))
         message_columns = "m.content, m.sender, m.is_from_me" if include_last_message else "NULL, NULL, NULL"
         join = (
-            "LEFT JOIN messages m ON c.jid = m.chat_jid AND c.last_message_time = m.timestamp"
+            "LEFT JOIN ("
+            "SELECT chat_jid, content, sender, is_from_me, "
+            "ROW_NUMBER() OVER (PARTITION BY chat_jid ORDER BY timestamp DESC, id DESC) AS rn "
+            "FROM messages"
+            ") m ON m.chat_jid = c.jid AND m.rn = 1"
             if include_last_message else ""
         )
         row = conn.execute(f"""
