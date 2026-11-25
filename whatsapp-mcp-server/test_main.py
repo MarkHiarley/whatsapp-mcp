@@ -128,6 +128,25 @@ def test_mcp_message_contract():
     print("  ✅ contrato MCP retorna mensagem estruturada")
 
 
+def test_chat_contract_accepts_null_last_media_type():
+    """Chats sem mídia chegam com last_media_type=None; o schema MCP deve aceitar."""
+    from pydantic import TypeAdapter
+    from typing import List
+    chat = whatsapp.Chat(
+        jid="5511999999999@s.whatsapp.net",
+        name="Contato",
+        last_message_time=datetime(2026, 8, 18, 20, 0, 0),
+        last_message="oi",
+        last_sender="5511999999999",
+        last_is_from_me=False,
+        last_media_type=None,
+    )
+    payload = mcp_main._contract([chat])
+    TypeAdapter(List[mcp_main.ChatDTO]).validate_python(payload)
+    assert payload[0]["last_media_type"] is None
+    print("  ✅ chat sem mídia valida com last_media_type nulo")
+
+
 def test_bridge_response_contract():
     """Cliente Python deve consumir o envelope da API v1."""
     class Response:
@@ -550,6 +569,7 @@ if __name__ == "__main__":
         test_format_message_no_chat,
         test_format_message_media,
         test_mcp_message_contract,
+        test_chat_contract_accepts_null_last_media_type,
         test_bridge_response_contract,
         test_api_token_header,
         test_lid_identity_aliases,
