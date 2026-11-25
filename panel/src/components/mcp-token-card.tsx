@@ -25,7 +25,7 @@ function copy(text: string, label: string) {
     .catch(() => toast.error("Não foi possível copiar."));
 }
 
-export function McpTokenCard({ endpoint }: { endpoint: string | null }) {
+export function McpTokenCard({ endpoint, tenantId }: { endpoint: string | null; tenantId: string }) {
   const router = useRouter();
   const [name, setName] = useState("Meu agente");
   const [write, setWrite] = useState(false);
@@ -79,7 +79,7 @@ export function McpTokenCard({ endpoint }: { endpoint: string | null }) {
           <KeyRound className="size-4 text-primary" aria-hidden />
           Gerar token do agente
         </CardTitle>
-        <CardDescription>O valor cru aparece uma vez. O painel guarda apenas o hash.</CardDescription>
+        <CardDescription>O valor cru aparece uma vez. Emitido para o tenant <span className="font-mono">{tenantId}</span>.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">

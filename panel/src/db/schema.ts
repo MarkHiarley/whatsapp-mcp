@@ -210,6 +210,8 @@ export const mcpToken = pgTable(
     name: text("name").notNull(),
     tokenHash: text("token_hash").notNull(),
     scopes: text("scopes").notNull(),
+    encryptedToken: text("encrypted_token"),
+    bridgeKeyId: text("bridge_key_id"),
     createdBy: text("created_by")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),

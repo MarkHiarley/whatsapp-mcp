@@ -48,8 +48,8 @@ jobs:
           tags: |
             ghcr.io/markhiarley/whatsapp-mcp/bridge:latest
             ghcr.io/markhiarley/whatsapp-mcp/bridge:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=bridge
+          cache-to: type=gha,mode=max,scope=bridge
 
       - name: Build and push panel
         uses: docker/build-push-action@v6
@@ -60,8 +60,8 @@ jobs:
           tags: |
             ghcr.io/markhiarley/whatsapp-mcp/panel:latest
             ghcr.io/markhiarley/whatsapp-mcp/panel:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=panel
+          cache-to: type=gha,mode=max,scope=panel
 
       - name: Build and push migrations
         uses: docker/build-push-action@v6
@@ -72,8 +72,8 @@ jobs:
           tags: |
             ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:latest
             ghcr.io/markhiarley/whatsapp-mcp/panel-migrate:${{ steps.meta.outputs.tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=panel-migrate
+          cache-to: type=gha,mode=max,scope=panel-migrate
 
   deploy:
     needs: build

@@ -34,7 +34,7 @@ export default async function McpPage() {
   const configured = Boolean(endpoint && process.env.MCP_INTERNAL_URL);
   const canManage = context.role === "admin" || context.role === "owner";
   const tokens = canManage
-    ? (await listMcpTokens(context.organizationId)).map((token) => ({
+    ? (await listMcpTokens(context.organizationId, context.tenantId)).map((token) => ({
         id: token.id,
         name: token.name,
         scopes: token.scopes,
@@ -86,7 +86,7 @@ export default async function McpPage() {
 
           {canManage ? (
             <>
-              <McpTokenCard endpoint={configured ? endpoint : null} />
+              <McpTokenCard endpoint={configured ? endpoint : null} tenantId={context.tenantId} />
               <McpTokenList tokens={tokens} />
             </>
           ) : (

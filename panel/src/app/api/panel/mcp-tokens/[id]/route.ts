@@ -13,7 +13,7 @@ export async function DELETE(_: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
   const { id } = await params;
-  const revoked = await revokeMcpToken(context.organizationId, id);
+  const revoked = await revokeMcpToken(context.organizationId, context.tenantId, id);
   if (!revoked) {
     return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
   }

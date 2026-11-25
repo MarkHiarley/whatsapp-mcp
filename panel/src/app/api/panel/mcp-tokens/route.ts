@@ -16,7 +16,7 @@ export async function GET() {
   if (!canManage(context.role)) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
-  const tokens = await listMcpTokens(context.organizationId);
+  const tokens = await listMcpTokens(context.organizationId, context.tenantId);
   return NextResponse.json({ tokens });
 }
 
@@ -49,14 +49,17 @@ export async function POST(request: Request) {
   try {
     const created = await createMcpToken({
       organizationId: context.organizationId,
+      tenantId: context.tenantId,
       userId: context.userId,
       name,
       scopes,
+      isAdmin: context.isAdmin,
     });
     return NextResponse.json(
       {
         id: created.id,
         name: created.name,
+        tenantId: created.tenantId,
         scopes: created.scopes,
         token: created.token,
         createdAt: created.createdAt.toISOString(),
@@ -66,9 +69,9 @@ export async function POST(request: Request) {
   } catch (error) {
     const code = error instanceof Error ? error.message : "INTERNAL_ERROR";
     const status =
-      code === "TENANT_CREDENTIAL_NOT_FOUND" || code === "TENANT_NOT_FOUND" || code === "TENANT_KEY_INVALID"
+      code === "TENANT_CREDENTIAL_NOT_FOUND" || code === "TENANT_NOT_FOUND" || code === "TENANT_KEY_INVALID" || code === "TENANT_FORBIDDEN"
         ? 400
-        : code === "BRIDGE_NOT_CONFIGURED" || code === "BRIDGE_UNAVAILABLE"
+        : code === "BRIDGE_NOT_CONFIGURED" || code === "BRIDGE_ADMIN_NOT_CONFIGURED" || code === "BRIDGE_UNAVAILABLE" || code === "BRIDGE_KEY_CREATE_FAILED"
           ? 503
           : 500;
     return NextResponse.json({ error: code }, { status });
