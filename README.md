@@ -451,7 +451,7 @@ The container must be running with `docker compose up -d` before the MCP client 
 
 ## Manual setup
 
-Requirements: Go 1.25+, Python 3.11+, and UV.
+Requirements: Go 1.27+, Python 3.11+, and UV.
 
 ```bash
 export WHATSAPP_API_TOKEN="$(openssl rand -hex 32)"

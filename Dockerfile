@@ -1,5 +1,5 @@
 # Go build
-FROM golang:1.25 AS go-builder
+FROM golang:1.27 AS go-builder
 WORKDIR /src
 COPY whatsapp-bridge/go.mod whatsapp-bridge/go.sum ./
 RUN go mod download
