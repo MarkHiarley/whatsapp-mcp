@@ -24,6 +24,27 @@ export function NewTenantDialog() {
   const [token, setToken] = useState<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [tokenOpen, setTokenOpen] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+
+  async function pairNow() {
+    if (!createdId) {
+      return;
+    }
+    setSelecting(true);
+    const response = await fetch("/api/panel/tenant", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant: createdId }),
+    });
+    setSelecting(false);
+    if (!response.ok) {
+      toast.error("Tenant criado, mas não foi possível selecioná-lo no painel.");
+      return;
+    }
+    setTokenOpen(false);
+    router.push("/settings");
+    router.refresh();
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -124,6 +145,9 @@ export function NewTenantDialog() {
           )}
           <DialogFooter showCloseButton>
             {token ? <CopyButton value={token} /> : null}
+            <Button type="button" size="sm" onClick={pairNow} disabled={selecting || !createdId}>
+              {selecting ? "Selecionando…" : "Parear agora"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

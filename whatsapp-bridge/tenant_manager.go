@@ -35,6 +35,7 @@ type tenantRuntime struct {
 	status       TenantStatus
 	pairing      bool
 	reconnecting bool
+	lastQR       string
 	qrSubs       map[chan qrEvent]struct{}
 	logger       waLog.Logger
 }
@@ -159,6 +160,38 @@ func (m *TenantManager) DeleteTenant(id string) error {
 	return nil
 }
 
+// LogoutTenant unlinks the WhatsApp session and prepares a fresh device for pairing.
+func (m *TenantManager) LogoutTenant(id string) error {
+	rt, ok := m.Runtime(id)
+	if !ok {
+		return errTenantNotFound
+	}
+	rt.mu.RLock()
+	client := rt.client
+	rt.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("tenant runtime is not started")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	logoutErr := client.Logout(ctx)
+	cancel()
+
+	rt.mu.Lock()
+	if rt.client == client {
+		_ = rt.resetClientLocked()
+		rt.pairing = false
+		rt.lastQR = ""
+		rt.status = TenantDisconnected
+	}
+	rt.mu.Unlock()
+	m.broadcast(rt, qrEvent{Kind: "status", Status: TenantDisconnected})
+	if logoutErr != nil {
+		rt.logger.Warnf("Tenant %s logout returned: %v", id, logoutErr)
+	}
+	return nil
+}
+
 // Runtime returns the live runtime of one tenant.
 func (m *TenantManager) Runtime(id string) (*tenantRuntime, bool) {
 	m.mu.RLock()
@@ -264,6 +297,20 @@ func (m *TenantManager) UnsubscribeQR(rt *tenantRuntime, ch <-chan qrEvent) {
 
 // StartPairing begins (or joins) the QR flow and returns its event stream.
 func (m *TenantManager) StartPairing(rt *tenantRuntime) (<-chan qrEvent, error) {
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		rt.mu.RLock()
+		ready := rt.client != nil && rt.container != nil
+		rt.mu.RUnlock()
+		if ready {
+			break
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("tenant runtime is not started")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	rt.mu.Lock()
 	if rt.client == nil || rt.container == nil {
 		rt.mu.Unlock()
@@ -279,6 +326,9 @@ func (m *TenantManager) StartPairing(rt *tenantRuntime) (<-chan qrEvent, error) 
 	if rt.pairing {
 		ch := rt.addSubLocked()
 		ch <- qrEvent{Kind: "status", Status: rt.status}
+		if rt.lastQR != "" {
+			ch <- qrEvent{Kind: "qr", Code: rt.lastQR, Status: TenantPairing}
+		}
 		rt.mu.Unlock()
 		return ch, nil
 	}
@@ -501,6 +551,9 @@ func (m *TenantManager) consumeQR(rt *tenantRuntime, qrChan <-chan whatsmeow.QRC
 	for evt := range qrChan {
 		switch evt.Event {
 		case whatsmeow.QRChannelEventCode:
+			rt.mu.Lock()
+			rt.lastQR = evt.Code
+			rt.mu.Unlock()
 			m.broadcast(rt, qrEvent{Kind: "qr", Code: evt.Code, Status: TenantPairing})
 			if rt.tenant.ID == LegacyTenantID {
 				fmt.Println("\nScan this QR code with your WhatsApp app:")
@@ -522,6 +575,7 @@ func (m *TenantManager) consumeQR(rt *tenantRuntime, qrChan <-chan whatsmeow.QRC
 
 	rt.mu.Lock()
 	rt.pairing = false
+	rt.lastQR = ""
 	status := rt.status
 	rt.mu.Unlock()
 	if status == TenantPairing {

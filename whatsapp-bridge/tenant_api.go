@@ -49,6 +49,7 @@ func newTenantRESTHandler(m *TenantManager) http.Handler {
 	mux.HandleFunc("/api/v1/tenants", api.authenticate(api.handleTenants))
 	mux.HandleFunc("/api/v1/tenants/{tenant}", api.authenticate(api.handleTenant))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/status", api.authenticate(api.handleTenantStatus))
+	mux.HandleFunc("/api/v1/tenants/{tenant}/logout", api.authenticate(api.handleTenantLogout))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/qr", api.authenticate(api.handleTenantQR))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/keys", api.authenticate(api.handleTenantKeys))
 	mux.HandleFunc("/api/v1/tenants/{tenant}/keys/{keyId}", api.authenticate(api.handleTenantKey))
@@ -267,6 +268,33 @@ func (a *tenantAPI) handleTenantStatus(w http.ResponseWriter, r *http.Request, p
 	}
 	if r.Method != http.MethodGet {
 		methodNotAllowed(w)
+		return
+	}
+	view, ok := a.tenantView(tenant)
+	if !ok {
+		writeAPIError(w, http.StatusNotFound, "NOT_FOUND", "Tenant not found")
+		return
+	}
+	writeEnvelope(w, http.StatusOK, struct {
+		Tenant TenantView `json:"tenant"`
+	}{Tenant: view})
+}
+
+func (a *tenantAPI) handleTenantLogout(w http.ResponseWriter, r *http.Request, p principal) {
+	tenant, ok := a.authorize(w, p, r.PathValue("tenant"))
+	if !ok {
+		return
+	}
+	if r.Method != http.MethodPost {
+		methodNotAllowed(w)
+		return
+	}
+	if err := a.m.LogoutTenant(tenant); err != nil {
+		if errors.Is(err, errTenantNotFound) {
+			writeAPIError(w, http.StatusNotFound, "NOT_FOUND", "Tenant not found")
+			return
+		}
+		writeAPIError(w, http.StatusConflict, "LOGOUT_FAILED", err.Error())
 		return
 	}
 	view, ok := a.tenantView(tenant)

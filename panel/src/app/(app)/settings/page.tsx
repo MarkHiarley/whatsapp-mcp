@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ExternalLink, ShieldCheck } from "lucide-react";
 
 import { PageHeader } from "@/components/page-header";
+import { DisconnectButton } from "@/components/pairing/disconnect-button";
 import { QrPairing } from "@/components/pairing/qr-pairing";
 import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
 
   const context = await requireTenantContext();
   const statusResult = await loadStatus();
+  const canManage = context.isAdmin || context.organizationRole === "owner";
 
   return (
     <>
@@ -30,10 +32,19 @@ export default async function SettingsPage() {
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
         <Card>
           <CardHeader className="border-b">
-            <CardTitle className="text-sm">Sessão do tenant</CardTitle>
-            <CardDescription>
-              O stream usa SSE pelo BFF: o token fica no servidor e não é exposto ao navegador.
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1">
+                <CardTitle className="text-sm">Sessão do tenant</CardTitle>
+                <CardDescription>
+                  O stream usa SSE pelo BFF: o token fica no servidor e não é exposto ao navegador.
+                </CardDescription>
+              </div>
+              <DisconnectButton
+                tenantId={context.tenantId}
+                status={statusResult.ok ? statusResult.data.status : "disconnected"}
+                canManage={canManage}
+              />
+            </div>
           </CardHeader>
           <CardContent>
             <QrPairing tenantId={context.tenantId} initialStatus={statusResult.ok ? statusResult.data.status : "disconnected"} />
