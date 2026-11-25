@@ -35,11 +35,22 @@ jobs:
         env:
           TZ: America/Sao_Paulo
         run: |
-          cd whatsapp-bridge && go test ./...
+          cd whatsapp-bridge
+          go test -race -shuffle=on -count=1 -coverprofile=coverage.out ./...
+          go tool cover -func=coverage.out | tail -1
+          coverage=$(go tool cover -func=coverage.out | awk '/^total:/ {gsub("%", "", $3); print $3}')
+          awk -v coverage="$coverage" 'BEGIN { if (coverage < 45) { print "coverage below 45%: " coverage "%"; exit 1 } }'
           cd ../whatsapp-mcp-server && uv run python test_main.py
 
       - name: OpenAPI contract
         run: uv run --with pyyaml python -c "import yaml; yaml.safe_load(open('contracts/openapi.yaml'))"
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-coverage
+          path: whatsapp-bridge/coverage.out
+          if-no-files-found: error
 
       - name: Type checks
         run: |
